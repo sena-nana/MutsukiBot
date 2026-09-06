@@ -75,10 +75,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use url::Url;
 
+mod config;
 mod management;
 mod open_platform;
 mod secure_media;
 
+pub use config::{
+    BILIBILI_APP_SECRET_FIELD, BILIBILI_APP_SECRET_KEY, BILIBILI_COOKIE_FIELD, BILIBILI_COOKIE_KEY,
+    BILIBILI_OAUTH_CREDENTIAL_FIELD, BILIBILI_OAUTH_CREDENTIAL_KEY, bilibili_config_descriptor,
+    bilibili_config_value,
+};
 pub use management::{BilibiliManagementService, BilibiliQrRenderer, BilibiliSecretPresence};
 pub use open_platform::{
     BilibiliOpenPlatformCredential, BilibiliOpenPlatformHttpClient,

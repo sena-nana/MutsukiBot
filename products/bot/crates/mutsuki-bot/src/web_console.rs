@@ -16,6 +16,9 @@ use mutsuki_bot_web_console::{
 };
 use mutsuki_plugin_bot_adapter_qqbot::QQBOT_ADAPTER_PLUGIN_ID;
 use mutsuki_plugin_bot_agent::BOT_AGENT_BRIDGE_PLUGIN_ID;
+use mutsuki_plugin_bot_bilibili::PLUGIN_ID as BILIBILI_PLUGIN_ID;
+use mutsuki_plugin_bot_bilibili_workshop::PLUGIN_ID as WORKSHOP_PLUGIN_ID;
+use mutsuki_plugin_bot_mihuashi::PLUGIN_ID as MIHUASHI_PLUGIN_ID;
 use mutsuki_service_config::ServiceConfig;
 use mutsuki_service_runtime::ServiceRuntime;
 use mutsuki_web_host::{MutsukiWebHost, WebHost, WebHostResult};
@@ -62,6 +65,9 @@ impl WebConsoleGuard {
                 QQBOT_ADAPTER_PLUGIN_ID.into(),
                 LOCAL_AGENT_CONFIG_PROVIDER_ID.into(),
                 BOT_AGENT_BRIDGE_PLUGIN_ID.into(),
+                BILIBILI_PLUGIN_ID.into(),
+                WORKSHOP_PLUGIN_ID.into(),
+                MIHUASHI_PLUGIN_ID.into(),
             ]);
         }
         let config = WebConsoleConfig {
@@ -195,8 +201,9 @@ fn build_secret_monitor(
 }
 
 fn config_navigation_groups() -> Vec<ConfigNavigationGroup> {
-    // Formal display names for every plugin the product may load. Entries whose
-    // plugin is not loaded are dropped by the config-web frontend.
+    // Formal display names for every plugin the product may load. The 接入
+    // entries keep owner config providers, so they render even before their
+    // plugin is enabled; web-extension pages appear once their plugin loads.
     let item = |provider_id: &str, label: &str| ConfigNavigationItem {
         provider_id: provider_id.into(),
         label: Some(label.into()),

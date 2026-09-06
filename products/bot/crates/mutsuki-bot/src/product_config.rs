@@ -8,7 +8,9 @@ use mutsuki_agent_service_host_integration::{
     LOCAL_AGENT_API_KEY_FIELD, LOCAL_AGENT_CONFIG_PROVIDER_ID, LOCAL_AGENT_PLUGIN_ID,
     LocalAgentConfig, local_agent_config_descriptor, local_agent_config_value,
 };
-use mutsuki_bot_service_host_integration::SANDBOX_SERVICE_ID;
+use mutsuki_bot_service_host_integration::{
+    SANDBOX_SERVICE_ID, link_card_config_descriptor, link_card_config_value,
+};
 use mutsuki_config_service::{
     ConfigApplyMode, ConfigConstraints, ConfigContext, ConfigDescriptor, ConfigError, ConfigExpr,
     ConfigLifecycle, ConfigMutability, ConfigNode, ConfigPersistSink, ConfigPersistTransaction,
@@ -25,7 +27,15 @@ use mutsuki_plugin_bot_adapter_qqbot::{
 use mutsuki_plugin_bot_agent::{
     BOT_AGENT_BRIDGE_PLUGIN_ID, BotAgentConfig, bot_agent_config_schema,
 };
+use mutsuki_plugin_bot_bilibili::{
+    BILIBILI_APP_SECRET_FIELD, BILIBILI_APP_SECRET_KEY, BILIBILI_COOKIE_FIELD, BILIBILI_COOKIE_KEY,
+    BILIBILI_OAUTH_CREDENTIAL_FIELD, BILIBILI_OAUTH_CREDENTIAL_KEY, BilibiliBackendConfig,
+    BilibiliConfig, PLUGIN_ID as BILIBILI_PLUGIN_ID, bilibili_config_descriptor,
+    bilibili_config_value,
+};
+use mutsuki_plugin_bot_bilibili_workshop::PLUGIN_ID as WORKSHOP_PLUGIN_ID;
 use mutsuki_plugin_bot_event_router::BOT_FLOW_ROUTER_PLUGIN_ID;
+use mutsuki_plugin_bot_mihuashi::PLUGIN_ID as MIHUASHI_PLUGIN_ID;
 use mutsuki_service_config::{
     ConfiguredPluginSelection, HostSecretStore, PreparedHostSecretTransaction,
 };
@@ -234,49 +244,54 @@ pub fn product_seed_defaults() -> ConfigValue {
     ]))
 }
 
+/// Builds an owner provider whose secret fields resolve through the Host
+/// secret store under the given `(document field, store key)` pairs.
+fn secret_backed_provider(
+    descriptor: ConfigDescriptor,
+    value: ConfigValue,
+    secrets: &HostSecretStore,
+    secret_keys: &[(&str, &str)],
+) -> MemoryConfigProvider {
+    let mut provider = MemoryConfigProvider::new(descriptor, value, ConfigApplyMode::HotReload)
+        .with_persist(Arc::new(HostSecretPersist {
+            store: secrets.clone(),
+            key_by_field: secret_keys
+                .iter()
+                .map(|(field, key)| ((*field).to_owned(), (*key).to_owned()))
+                .collect(),
+        }));
+    for (field, key) in secret_keys {
+        if secrets.resolve(key).is_some() {
+            provider = provider.with_initial_secret(*field, "configured".into());
+        }
+    }
+    provider
+}
+
 /// Registers the product-facing owner providers after Host secrets have been loaded.
 pub(crate) async fn register_configured_product_providers(
     service: &Arc<ConfigService>,
     secrets: HostSecretStore,
 ) -> Result<(), ProductConfigError> {
     let qq_config = QqBotConfig::default();
-    let mut qq_provider = MemoryConfigProvider::new(
+    let qq_provider = secret_backed_provider(
         qq_config_descriptor(QQBOT_ADAPTER_PLUGIN_ID),
         qq_config_value(false, &qq_config),
-        ConfigApplyMode::HotReload,
-    )
-    .with_persist(Arc::new(HostSecretPersist {
-        store: secrets.clone(),
-        key_by_field: BTreeMap::from([(
-            QQ_CLIENT_SECRET_FIELD.into(),
-            QQ_CLIENT_SECRET_KEY.into(),
-        )]),
-    }));
-    if secrets.resolve(QQ_CLIENT_SECRET_KEY).is_some() {
-        qq_provider = qq_provider.with_initial_secret(QQ_CLIENT_SECRET_FIELD, "configured".into());
-    }
+        &secrets,
+        &[(QQ_CLIENT_SECRET_FIELD, QQ_CLIENT_SECRET_KEY)],
+    );
     service
         .registry()
         .register(Arc::new(qq_provider))
         .map_err(register_error)?;
 
     let local_config = LocalAgentConfig::default();
-    let mut local_provider = MemoryConfigProvider::new(
+    let local_provider = secret_backed_provider(
         local_agent_config_descriptor(),
         local_agent_config_value(false, &local_config),
-        ConfigApplyMode::HotReload,
-    )
-    .with_persist(Arc::new(HostSecretPersist {
-        store: secrets.clone(),
-        key_by_field: BTreeMap::from([(
-            LOCAL_AGENT_API_KEY_FIELD.into(),
-            LOCAL_AGENT_API_KEY.into(),
-        )]),
-    }));
-    if secrets.resolve(LOCAL_AGENT_API_KEY).is_some() {
-        local_provider =
-            local_provider.with_initial_secret(LOCAL_AGENT_API_KEY_FIELD, "configured".into());
-    }
+        &secrets,
+        &[(LOCAL_AGENT_API_KEY_FIELD, LOCAL_AGENT_API_KEY)],
+    );
     service
         .registry()
         .register(Arc::new(local_provider))
@@ -294,10 +309,44 @@ pub(crate) async fn register_configured_product_providers(
         )))
         .map_err(register_error)?;
 
+    let bilibili_provider = secret_backed_provider(
+        bilibili_config_descriptor(),
+        bilibili_config_value(false, &BilibiliConfig::default()),
+        &secrets,
+        &[
+            (BILIBILI_COOKIE_FIELD, BILIBILI_COOKIE_KEY),
+            (BILIBILI_APP_SECRET_FIELD, BILIBILI_APP_SECRET_KEY),
+            (
+                BILIBILI_OAUTH_CREDENTIAL_FIELD,
+                BILIBILI_OAUTH_CREDENTIAL_KEY,
+            ),
+        ],
+    );
+    service
+        .registry()
+        .register(Arc::new(bilibili_provider))
+        .map_err(register_error)?;
+    for (plugin_id, title) in [
+        (WORKSHOP_PLUGIN_ID, "B 站工房"),
+        (MIHUASHI_PLUGIN_ID, "米画师"),
+    ] {
+        service
+            .registry()
+            .register(Arc::new(MemoryConfigProvider::new(
+                link_card_config_descriptor(plugin_id, title),
+                link_card_config_value(false, ""),
+                ConfigApplyMode::HotReload,
+            )))
+            .map_err(register_error)?;
+    }
+
     for provider_id in [
         QQBOT_ADAPTER_PLUGIN_ID,
         LOCAL_AGENT_CONFIG_PROVIDER_ID,
         BOT_AGENT_BRIDGE_PLUGIN_ID,
+        BILIBILI_PLUGIN_ID,
+        WORKSHOP_PLUGIN_ID,
+        MIHUASHI_PLUGIN_ID,
     ] {
         service
             .restore(provider_id, provider_context(provider_id))
@@ -316,6 +365,9 @@ pub(crate) async fn configured_product_owner_selections(
         QQBOT_ADAPTER_PLUGIN_ID,
         LOCAL_AGENT_CONFIG_PROVIDER_ID,
         BOT_AGENT_BRIDGE_PLUGIN_ID,
+        BILIBILI_PLUGIN_ID,
+        WORKSHOP_PLUGIN_ID,
+        MIHUASHI_PLUGIN_ID,
     ] {
         let snapshot = service
             .read(
@@ -411,6 +463,9 @@ pub(crate) fn is_product_owner_plugin(id: &str) -> bool {
             | QQBOT_ADAPTER_PLUGIN_ID
             | LOCAL_AGENT_PLUGIN_ID
             | BOT_AGENT_BRIDGE_PLUGIN_ID
+            | BILIBILI_PLUGIN_ID
+            | WORKSHOP_PLUGIN_ID
+            | MIHUASHI_PLUGIN_ID
     )
 }
 
@@ -512,6 +567,82 @@ pub(crate) fn configured_plugin_selection_from_value(
                 id: provider_id.into(),
                 enabled,
                 config: serde_json::to_value(config).expect("Bot Agent config serializes"),
+            })
+        }
+        BILIBILI_PLUGIN_ID => {
+            let enabled = bool_field(object, "enabled")?;
+            let mut config: BilibiliConfig = object
+                .get("runtime_config")
+                .cloned()
+                .and_then(|value| serde_json::from_value(value).ok())
+                .or_else(|| {
+                    base.and_then(|selection| serde_json::from_value(selection.config.clone()).ok())
+                })
+                .unwrap_or_default();
+            config.media_provider_id = optional_string_field(object, "media_provider_id");
+            if optional_string_field(object, "backend") == "open_platform" {
+                config.backend = BilibiliBackendConfig::OpenPlatform {
+                    client_id: optional_string_field(object, "client_id"),
+                    app_secret_key: BILIBILI_APP_SECRET_KEY.into(),
+                    oauth_credential_key: BILIBILI_OAUTH_CREDENTIAL_KEY.into(),
+                    authorized_uid: object
+                        .get("authorized_uid")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or_default(),
+                };
+                // The open platform backend cannot serve cookie management,
+                // web link resolution or Chromium risk control; drop the stale
+                // hidden values so validation matches the visible contract.
+                config.management.enabled = false;
+                config.risk_control = None;
+                config.link_resolver.enabled = false;
+            } else {
+                config.backend = BilibiliBackendConfig::WebCookie {
+                    cookie_secret_key: BILIBILI_COOKIE_KEY.into(),
+                };
+            }
+            config.management.enabled = optional_bool_field(object, "management_enabled")
+                .unwrap_or_default()
+                && matches!(config.backend, BilibiliBackendConfig::WebCookie { .. });
+            if let Some(admin_user_ids) = object
+                .get("management_admin_user_ids")
+                .and_then(serde_json::Value::as_array)
+            {
+                config.management.admin_user_ids = admin_user_ids
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(str::to_owned)
+                    .collect();
+            }
+            if let Some(binding) = object.get("management_self_binding_outbound_binding") {
+                config.management.self_binding_outbound_binding = binding
+                    .as_str()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| config.management.self_binding_outbound_binding.clone());
+            }
+            if enabled {
+                config
+                    .validate()
+                    .map_err(|reason| ConfigError::ApplyRejected { reason })?;
+            }
+            Ok(ConfiguredPluginSelection {
+                id: provider_id.into(),
+                enabled,
+                config: serde_json::to_value(config).expect("Bilibili config serializes"),
+            })
+        }
+        WORKSHOP_PLUGIN_ID | MIHUASHI_PLUGIN_ID => {
+            let enabled = bool_field(object, "enabled")?;
+            let media_provider_id = optional_string_field(object, "media_provider_id");
+            if enabled && media_provider_id.trim().is_empty() {
+                return Err(ConfigError::ApplyRejected {
+                    reason: "media_provider_id is required".into(),
+                });
+            }
+            Ok(ConfiguredPluginSelection {
+                id: provider_id.into(),
+                enabled,
+                config: serde_json::json!({ "media_provider_id": media_provider_id }),
             })
         }
         _ => Err(ConfigError::ApplyRejected {
@@ -692,5 +823,125 @@ mod tests {
         let selected = select(value);
         let restored: QqBotConfig = serde_json::from_value(selected.config).unwrap();
         assert_eq!(restored.gateway_intents, QQ_INTENT_GROUP_AND_C2C);
+    }
+
+    fn select_plugin(
+        provider_id: &str,
+        value: ConfigValue,
+    ) -> Result<ConfiguredPluginSelection, ConfigError> {
+        configured_plugin_selection_from_value(provider_id, &value, None)
+    }
+
+    #[test]
+    fn bilibili_owner_document_stays_disabled_until_configured() {
+        let selected = select_plugin(
+            BILIBILI_PLUGIN_ID,
+            bilibili_config_value(false, &BilibiliConfig::default()),
+        )
+        .unwrap();
+        assert!(!selected.enabled);
+        let config: BilibiliConfig = serde_json::from_value(selected.config).unwrap();
+        assert_eq!(
+            config.backend,
+            BilibiliBackendConfig::WebCookie {
+                cookie_secret_key: BILIBILI_COOKIE_KEY.into(),
+            }
+        );
+    }
+
+    #[test]
+    fn enabled_bilibili_requires_media_provider_and_binds_secret_keys() {
+        let mut config = BilibiliConfig::default();
+        config.management.enabled = true;
+        let error =
+            select_plugin(BILIBILI_PLUGIN_ID, bilibili_config_value(true, &config)).unwrap_err();
+        assert!(error.to_string().contains("media_provider_id"));
+
+        config.media_provider_id = "memory".into();
+        config.management.admin_user_ids = vec!["admin".into()];
+        config.management.self_binding_outbound_binding = "qq-main".into();
+        let selected =
+            select_plugin(BILIBILI_PLUGIN_ID, bilibili_config_value(true, &config)).unwrap();
+        assert!(selected.enabled);
+        let restored: BilibiliConfig = serde_json::from_value(selected.config).unwrap();
+        assert_eq!(restored.media_provider_id, "memory");
+        assert!(restored.management.enabled);
+        assert_eq!(restored.management.admin_user_ids, vec!["admin".to_owned()]);
+        assert_eq!(restored.management.self_binding_outbound_binding, "qq-main");
+        assert_eq!(
+            restored.backend.cookie_secret_key(),
+            Some(BILIBILI_COOKIE_KEY)
+        );
+    }
+
+    #[test]
+    fn open_platform_switch_forces_cookie_only_surfaces_off() {
+        let mut config = BilibiliConfig::default();
+        config.media_provider_id = "memory".into();
+        config.management.enabled = true;
+        config.link_resolver.enabled = true;
+        let value = bilibili_config_value(true, &config).to_json();
+        let value = serde_json::json!({
+            "enabled": true,
+            "backend": "open_platform",
+            "media_provider_id": value["media_provider_id"],
+            "client_id": "client",
+            "app_secret": "configured",
+            "oauth_credential": "configured",
+            "authorized_uid": 42,
+            "management_enabled": true,
+            "runtime_config": value["runtime_config"],
+        });
+        let selected = select_plugin(BILIBILI_PLUGIN_ID, ConfigValue::from_json(&value)).unwrap();
+        let restored: BilibiliConfig = serde_json::from_value(selected.config).unwrap();
+        match restored.backend {
+            BilibiliBackendConfig::OpenPlatform {
+                client_id,
+                app_secret_key,
+                oauth_credential_key,
+                authorized_uid,
+            } => {
+                assert_eq!(client_id, "client");
+                assert_eq!(app_secret_key, BILIBILI_APP_SECRET_KEY);
+                assert_eq!(oauth_credential_key, BILIBILI_OAUTH_CREDENTIAL_KEY);
+                assert_eq!(authorized_uid, 42);
+            }
+            other => panic!("expected open platform backend, got {other:?}"),
+        }
+        assert!(!restored.management.enabled);
+        assert!(!restored.link_resolver.enabled);
+        assert!(restored.risk_control.is_none());
+    }
+
+    #[test]
+    fn link_card_plugins_require_media_provider_only_when_enabled() {
+        for provider_id in [WORKSHOP_PLUGIN_ID, MIHUASHI_PLUGIN_ID] {
+            let disabled = select_plugin(provider_id, link_card_config_value(false, "")).unwrap();
+            assert!(!disabled.enabled);
+
+            let error = select_plugin(provider_id, link_card_config_value(true, "")).unwrap_err();
+            assert!(error.to_string().contains("media_provider_id"));
+
+            let enabled =
+                select_plugin(provider_id, link_card_config_value(true, "memory")).unwrap();
+            assert!(enabled.enabled);
+            assert_eq!(
+                enabled.config,
+                serde_json::json!({ "media_provider_id": "memory" })
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_platform_plugins_are_rejected_from_runtime_plugins() {
+        for plugin_id in [BILIBILI_PLUGIN_ID, WORKSHOP_PLUGIN_ID, MIHUASHI_PLUGIN_ID] {
+            let product = serde_json::json!({
+                "runtime_plugins": {
+                    plugin_id: { "enabled": true, "config": {} },
+                },
+            });
+            let error = runtime_plugin_selections(&product).unwrap_err();
+            assert!(error.to_string().contains("不得配置 owner 插件"));
+        }
     }
 }

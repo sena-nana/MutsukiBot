@@ -13,6 +13,7 @@ mutsuki-bot-flow.workspace = true
 mutsuki-bot-link-parser.workspace = true
 mutsuki-bot-management.workspace = true
 mutsuki-bot-protocol.workspace = true
+mutsuki-config-service.workspace = true
 mutsuki-protocol-browser.workspace = true
 mutsuki-protocol-image.workspace = true
 mutsuki-runtime-contracts.workspace = true

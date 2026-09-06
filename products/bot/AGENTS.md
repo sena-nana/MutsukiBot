@@ -47,7 +47,7 @@ Issue 是需求线索，不是当前 API 的事实源。存在 `.codegraph/` 时
 5. 产品不得拥有业务 Runner、命令、回复或 Agent 流程；这些能力由 owner package 实现，并遵守 batch-first、`TaskHandle` 和通用协议契约。编译期依赖 owner 插件的配置 schema 是允许的，不等于硬编码 backend 替代路径。`mutsuki-bot-runtime-reference` 只做域拓扑 bench，不是生产入口。
 6. RuntimeProfile/RuntimeLoadPlan 是装配权威；registry freeze 后不得动态越权注册。
 7. 缺失 capability、配置、secret、artifact 或 revision 必须结构化失败，禁止假成功和吞错。
-8. 生产入口不接受配置路径、profile 或 namespace；产品显式选择固定 SQLite 配置仓库，但框架不假设路径或存储实现。空仓库只写一次版本化种子，直接启用 Agent Connections、Flow Router 与对应管理页，并把 `qq.business.full` 全量参考图作为 Flow 种子（已有 Flow 记录永不覆盖；节点目录不完整时种子不应用并保持空图）；QQ、Local Agent、Bot Agent 和业务 Flow 的实际生效仍由保存后的 owner 配置显式启用。Mock 仅限测试。
+8. 生产入口不接受配置路径、profile 或 namespace；产品显式选择固定 SQLite 配置仓库，但框架不假设路径或存储实现。空仓库只写一次版本化种子，直接启用 Agent Connections、Flow Router 与对应管理页，并把 `qq.business.full` 全量参考图作为 Flow 种子（已有 Flow 记录永不覆盖；节点目录不完整时种子不应用并保持空图）；QQ、Local Agent、Bot Agent、内置平台插件（B 站、B 站工房、米画师）和业务 Flow 的实际生效仍由保存后的 owner 配置显式启用，`runtime_plugins` 不得配置这些 owner 插件。Mock 仅限测试。
 9. `sena-nana/MutsukiBotTemplate` 已退出源码和分发职责；不得恢复独立实现、Issue 或发布同步。
 10. `create-bot` 只生成固定统一 revision、调用公开产品 API 的外部薄壳；不得复制第一方产品、
     Host、Bot、Agent 或插件实现，不得写入 Secret，也不得覆盖已有目录。

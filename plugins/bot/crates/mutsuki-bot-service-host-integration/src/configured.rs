@@ -14,10 +14,9 @@ use mutsuki_bot_sdk::BotSubmissionGate;
 use mutsuki_bot_state_db::BotStateDbRepository;
 use mutsuki_config_service::{
     ConfigApplyMode, ConfigApplyRequest, ConfigConstraints, ConfigContext, ConfigDescriptor,
-    ConfigDocumentKey, ConfigKey, ConfigMutability, ConfigNode, ConfigPresentation,
+    ConfigDocumentKey, ConfigExpr, ConfigKey, ConfigMutability, ConfigNode, ConfigPresentation,
     ConfigProviderId, ConfigProviderRegistration, ConfigScope, ConfigService, ConfigValue,
-    ConfigValueType, LocalizedText, MapKeyStrategy, MemoryConfigProvider, RestartPolicy,
-    capability,
+    ConfigValueType, LocalizedText, MemoryConfigProvider, RestartPolicy, capability,
 };
 use mutsuki_plugin_bot_adapter_qqbot::{QQBOT_ADAPTER_PLUGIN_ID, QqBotConfig};
 use mutsuki_plugin_bot_agent::{
@@ -62,7 +61,8 @@ use mutsuki_plugin_bot_bilibili::{
     BilibiliManagementService, BilibiliRunner, BilibiliSecretPresence,
     PLUGIN_ID as BILIBILI_PLUGIN_ID, ReqwestBilibiliOpenPlatformTransport,
     ReqwestBilibiliTransport, RuntimeBilibiliQrRenderer, SharedBilibiliConfig,
-    SharedBilibiliCredential, SqliteBilibiliRepository,
+    SharedBilibiliCredential, SqliteBilibiliRepository, bilibili_config_descriptor,
+    bilibili_config_value,
 };
 use mutsuki_plugin_bot_bilibili_workshop::{
     PLUGIN_ID as WORKSHOP_PLUGIN_ID, ReqwestWorkshopTransport, WorkshopRunner,
@@ -626,35 +626,6 @@ impl BilibiliConfiguredPlugin {
     }
 }
 
-fn bilibili_config_descriptor() -> ConfigDescriptor {
-    ConfigDescriptor {
-        provider_id: ConfigProviderId::new(BILIBILI_PLUGIN_ID),
-        schema_version: 1,
-        value_version: 1,
-        title: LocalizedText::new("B 站"),
-        description: None,
-        scopes: vec![ConfigScope::global()],
-        root: ConfigNode {
-            key: ConfigKey::new("bilibili"),
-            value_type: ConfigValueType::Map {
-                key_strategy: MapKeyStrategy::FreeString,
-                value: Box::new(ConfigValueType::Object),
-            },
-            title: LocalizedText::new("B 站"),
-            description: None,
-            default_value: None,
-            constraints: ConfigConstraints::default(),
-            presentation: ConfigPresentation::default(),
-            visibility: None,
-            enabled_if: None,
-            mutability: ConfigMutability::ReadWrite,
-            restart_policy: RestartPolicy::None,
-            children: Vec::new(),
-        },
-        groups: Vec::new(),
-    }
-}
-
 fn block_on_config<F, T>(future: F) -> T
 where
     F: std::future::Future<Output = T> + Send + 'static,
@@ -696,9 +667,7 @@ struct ConfigServiceBilibiliConfigStore(Arc<ConfigService>);
 impl BilibiliConfigStore for ConfigServiceBilibiliConfigStore {
     fn replace(&self, config: &BilibiliConfig) -> Result<(), String> {
         let service = self.0.clone();
-        let candidate = ConfigValue::from_json(
-            &serde_json::to_value(config).map_err(|error| error.to_string())?,
-        );
+        let config = config.clone();
         block_on_config(async move {
             let snapshot = service
                 .read(
@@ -707,6 +676,16 @@ impl BilibiliConfigStore for ConfigServiceBilibiliConfigStore {
                     &[capability::VALUE_READ.into()],
                 )
                 .await?;
+            let stored = snapshot.value.to_json();
+            // The product-owned document wraps the runtime config with the
+            // enable switch and projected UI fields; legacy documents hold the
+            // bare runtime config.
+            let candidate = match stored.get("enabled").and_then(Value::as_bool) {
+                Some(enabled) => bilibili_config_value(enabled, &config),
+                None => ConfigValue::from_json(
+                    &serde_json::to_value(&config).expect("Bilibili config serializes"),
+                ),
+            };
             service
                 .apply(
                     BILIBILI_PLUGIN_ID,
@@ -749,17 +728,24 @@ impl ConfiguredPluginFactory for BilibiliConfiguredPlugin {
     ) -> Result<ServiceRuntimeBuilder, String> {
         let mut config: BilibiliConfig =
             serde_json::from_value(config.clone()).map_err(|error| error.to_string())?;
-        let config_provider = self.config_service.as_ref().map(|service| {
-            (
-                service.clone(),
-                Arc::new(MemoryConfigProvider::new(
-                    bilibili_config_descriptor(),
-                    ConfigValue::from_json(
-                        &serde_json::to_value(&config).expect("Bilibili config serializes"),
-                    ),
-                    ConfigApplyMode::HotReload,
-                )),
-            )
+        // The product pre-registers the owner config provider before plugins
+        // install; only fall back to a plugin-owned provider when no product
+        // owns this provider id yet.
+        let config_provider = self.config_service.as_ref().and_then(|service| {
+            service
+                .registry()
+                .get(BILIBILI_PLUGIN_ID)
+                .is_err()
+                .then(|| {
+                    Arc::new(MemoryConfigProvider::new(
+                        bilibili_config_descriptor(),
+                        ConfigValue::from_json(
+                            &serde_json::to_value(&config).expect("Bilibili config serializes"),
+                        ),
+                        ConfigApplyMode::HotReload,
+                    ))
+                })
+                .map(|provider| (service.clone(), provider))
         });
         if let Some((service, provider)) = &config_provider {
             let service = service.clone();
@@ -993,6 +979,102 @@ impl LinkCardPluginConfig {
             return Err("media_provider_id is required".into());
         }
         Ok(())
+    }
+}
+
+/// Product-facing link-card plugin configuration shared by the Workshop and
+/// Mihuashi factories. The owner document only exposes the enable switch and
+/// the media provider binding.
+pub fn link_card_config_descriptor(plugin_id: &str, title: &str) -> ConfigDescriptor {
+    ConfigDescriptor {
+        provider_id: ConfigProviderId::new(plugin_id),
+        schema_version: 1,
+        value_version: 1,
+        title: LocalizedText::new(title),
+        description: None,
+        scopes: vec![ConfigScope::global()],
+        root: ConfigNode {
+            key: ConfigKey::new("link_card"),
+            value_type: ConfigValueType::Object,
+            title: LocalizedText::new(title),
+            description: None,
+            default_value: None,
+            constraints: ConfigConstraints::default(),
+            presentation: ConfigPresentation::default(),
+            visibility: None,
+            enabled_if: None,
+            mutability: ConfigMutability::ReadWrite,
+            restart_policy: RestartPolicy::PluginReload,
+            children: vec![
+                bool_node("enabled", "启用", Some("关闭后不会加载该插件。")),
+                when_enabled(string_node("media_provider_id", "媒体资源 Provider")),
+            ],
+        },
+        groups: Vec::new(),
+    }
+}
+
+/// Projects the link-card owner document shape.
+pub fn link_card_config_value(enabled: bool, media_provider_id: &str) -> ConfigValue {
+    ConfigValue::Object(
+        [
+            ("enabled".into(), ConfigValue::Bool(enabled)),
+            (
+                "media_provider_id".into(),
+                ConfigValue::String(media_provider_id.into()),
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    )
+}
+
+fn bool_node(key: &str, title: &str, description: Option<&str>) -> ConfigNode {
+    let mut node = field_node(
+        key,
+        title,
+        ConfigValueType::Bool,
+        ConfigConstraints::default(),
+    );
+    node.description = description.map(LocalizedText::new);
+    node
+}
+
+fn string_node(key: &str, title: &str) -> ConfigNode {
+    field_node(
+        key,
+        title,
+        ConfigValueType::String { multiline: false },
+        ConfigConstraints::default(),
+    )
+}
+
+fn when_enabled(mut node: ConfigNode) -> ConfigNode {
+    node.enabled_if = Some(ConfigExpr::Field {
+        key: ConfigKey::new("enabled"),
+    });
+    node
+}
+
+fn field_node(
+    key: &str,
+    title: &str,
+    value_type: ConfigValueType,
+    constraints: ConfigConstraints,
+) -> ConfigNode {
+    ConfigNode {
+        key: ConfigKey::new(key),
+        value_type,
+        title: LocalizedText::new(title),
+        description: None,
+        default_value: None,
+        constraints,
+        presentation: ConfigPresentation::default(),
+        visibility: None,
+        enabled_if: None,
+        mutability: ConfigMutability::ReadWrite,
+        restart_policy: RestartPolicy::PluginReload,
+        children: Vec::new(),
     }
 }
 

@@ -118,6 +118,43 @@ async fn legacy_product_document_version_is_rejected_without_migration() {
 }
 
 #[tokio::test]
+async fn builtin_platform_plugins_boot_with_disabled_owner_documents() {
+    let root = tempfile::tempdir().unwrap();
+    let product = load_single_instance_product_for_test(root.path(), TEST_ADMIN_PASSPHRASE)
+        .await
+        .unwrap();
+    for id in [
+        "mutsuki.bot.bilibili",
+        "mutsuki.bot.bilibili.workshop",
+        "mutsuki.bot.mihuashi",
+    ] {
+        let snapshot = product
+            .config
+            .read(
+                id,
+                ConfigContext::global(),
+                &[capability::VALUE_READ.into()],
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            snapshot.value.to_json()["enabled"],
+            serde_json::Value::Bool(false),
+            "{id} must boot disabled"
+        );
+        assert!(
+            product
+                .service
+                .plugins
+                .configured
+                .iter()
+                .any(|selection| selection.id == id && !selection.enabled),
+            "{id} must ship as a disabled configured selection"
+        );
+    }
+}
+
+#[tokio::test]
 async fn owner_plugin_ids_are_rejected_from_runtime_plugins() {
     let root = tempfile::tempdir().unwrap();
     let first = load_single_instance_product_for_test(root.path(), TEST_ADMIN_PASSPHRASE)

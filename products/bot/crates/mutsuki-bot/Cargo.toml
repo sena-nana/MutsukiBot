@@ -28,8 +28,11 @@ mutsuki-bot-web-console = { workspace = true, optional = true }
 mutsuki-config-service.workspace = true
 mutsuki-plugin-bot-adapter-qqbot.workspace = true
 mutsuki-plugin-bot-agent.workspace = true
+mutsuki-plugin-bot-bilibili.workspace = true
+mutsuki-plugin-bot-bilibili-workshop.workspace = true
 mutsuki-plugin-bot-event-router.workspace = true
 mutsuki-plugin-bot-flow-agent-tool.workspace = true
+mutsuki-plugin-bot-mihuashi.workspace = true
 mutsuki-plugin-config-sqlite.workspace = true
 mutsuki-std-service-host-integration.workspace = true
 mutsuki-service-control.workspace = true
