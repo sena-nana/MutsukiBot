@@ -73,10 +73,15 @@ fn hero_card(request: &CardRenderRequest, family: &str) -> CardScene {
 }
 
 fn row_card(request: &CardRenderRequest, family: &str) -> CardScene {
-    let pill = if request.live {
-        pill("直播", ROSE)
+    let (label, dot): (&str, &str) = if request.live {
+        ("直播", ROSE)
     } else {
-        brand_pill(&request.brand)
+        (&request.brand, ACCENT)
+    };
+    let kicker = if request.kicker.trim() == label.trim() {
+        String::new()
+    } else {
+        kicker_text(&request.kicker)
     };
     scene(
         family,
@@ -85,13 +90,13 @@ fn row_card(request: &CardRenderRequest, family: &str) -> CardScene {
             r#"<div style="display:flex;width:100%;height:100%;">
   <div style="position:relative;width:176px;height:176px;flex:none;overflow:hidden;background:{CANVAS};">{}</div>
   <div style="display:flex;flex-direction:column;justify-content:center;gap:8px;min-width:0;flex:1;padding:20px 24px;">
-    <div style="display:flex;align-items:center;gap:16px;">{pill}{}</div>
+    <div style="display:flex;align-items:center;gap:16px;">{}{kicker}</div>
     {}
     {}
   </div>
 </div>"#,
             cover_fit(request),
-            kicker_text(&request.kicker),
+            pill(label, dot),
             title_block(&request.title, 28, 1),
             meta_block(&request.description),
         ),
@@ -379,6 +384,31 @@ mod tests {
         assert_eq!(scene.html.matches(COVER_SRC).count(), 2);
         assert!(scene.html.contains("filter:blur"));
         assert_eq!(card_cover(&card).unwrap().ref_id.as_str(), "cover");
+    }
+
+    #[test]
+    fn row_card_deduplicates_pill_label_and_kicker() {
+        let live = CardRenderRequest {
+            brand: "哔哩哔哩".into(),
+            title: "【直播】深夜联机一起打游戏！".into(),
+            description: "直播状态更新".into(),
+            url: "https://live.bilibili.com/1".into(),
+            layout: CardLayout::Row,
+            kicker: "直播".into(),
+            live: true,
+            ..CardRenderRequest::default()
+        };
+        let scene = compose_card(&live, "Noto Sans SC");
+        assert_eq!(scene.html.matches(">直播<").count(), 1);
+
+        let poll = CardRenderRequest {
+            live: false,
+            kicker: "投稿".into(),
+            ..live
+        };
+        let scene = compose_card(&poll, "Noto Sans SC");
+        assert!(scene.html.contains(">哔哩哔哩<"));
+        assert!(scene.html.contains(">投稿<"));
     }
 
     fn sample_ref() -> ResourceRef {

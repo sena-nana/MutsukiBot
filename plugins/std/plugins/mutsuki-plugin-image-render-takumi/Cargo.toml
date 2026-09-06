@@ -20,6 +20,10 @@ takumi = { version = "=2.5.7", features = ["from-html"] }
 takumi-core = "=0.14.0"
 takumi-html = "=0.1.20"
 takumi-raster = "=0.4.8"
+# Feature unification only: takumi-core enables parley without `complex-scripts`, leaving CJK
+# text with per-character line breaking plus missing-model warnings in debug builds. This
+# selects parley's dictionary segmenter (baked cjdict) for the whole build.
+parley = { version = "0.11", default-features = false, features = ["complex-scripts"] }
 
 [dev-dependencies]
 mutsuki-plugin-resource-memory = { path = "../mutsuki-plugin-resource-memory" }

@@ -5005,6 +5005,7 @@ dependencies = [
  "mutsuki-runtime-contracts",
  "mutsuki-runtime-core",
  "mutsuki-runtime-sdk",
+ "parley",
  "qrcode",
  "serde",
  "serde_json",
