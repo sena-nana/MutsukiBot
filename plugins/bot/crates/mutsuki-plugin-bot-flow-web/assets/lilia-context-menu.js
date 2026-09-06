@@ -169,12 +169,15 @@ function openContextMenuAt(clientX, clientY, items, options = {}) {
   }
 
   function bindLeaves(container, children) {
-    container.querySelectorAll(".ctx-menu__item").forEach((button, index) => {
-      const item = children[index];
-      if (item && !item.header && !item.disabled) {
+    const buttons = container.querySelectorAll(".ctx-menu__item");
+    let buttonIndex = 0;
+    for (const item of children) {
+      if (item.header) continue;
+      const button = buttons[buttonIndex++];
+      if (button && !item.disabled) {
         button.addEventListener("click", () => selectLeaf(item));
       }
-    });
+    }
   }
 
   function openSubmenu(index, parentEntry) {
@@ -186,7 +189,7 @@ function openContextMenuAt(clientX, clientY, items, options = {}) {
     sub.className = "ctx-menu__submenu";
     sub.style.zIndex = String(Z_INDEX + 1);
     sub.innerHTML = parent.children.map((child) => renderEntry(child)).join("");
-    document.body.appendChild(sub);
+    root.appendChild(sub);
     state.submenuEl = sub;
     placeSubmenu(sub, parentEntry.getBoundingClientRect());
     bindLeaves(sub, parent.children);
