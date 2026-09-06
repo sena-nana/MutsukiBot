@@ -3834,6 +3834,7 @@ dependencies = [
  "mutsuki-plugin-bot-flow-agent-tool",
  "mutsuki-plugin-bot-mihuashi",
  "mutsuki-plugin-config-sqlite",
+ "mutsuki-plugin-resource-sqlite",
  "mutsuki-protocol-browser",
  "mutsuki-runtime-contracts",
  "mutsuki-runtime-core",
@@ -4065,12 +4066,14 @@ dependencies = [
  "mutsuki-plugin-bot-qq-web",
  "mutsuki-plugin-bot-reply",
  "mutsuki-plugin-config-sqlite",
+ "mutsuki-plugin-resource-sqlite",
  "mutsuki-runtime-contracts",
  "mutsuki-runtime-core",
  "mutsuki-runtime-sdk",
  "mutsuki-service-config",
  "mutsuki-service-control",
  "mutsuki-service-runtime",
+ "mutsuki-std-service-host-integration",
  "serde",
  "serde_json",
  "tempfile",
@@ -5095,6 +5098,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mutsuki-plugin-resource-sqlite"
+version = "0.1.0"
+dependencies = [
+ "mutsuki-runtime-contracts",
+ "mutsuki-runtime-core",
+ "mutsuki-runtime-sdk",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "mutsuki-plugin-workflow-broadcast"
 version = "0.1.0"
 dependencies = [
@@ -5520,6 +5536,7 @@ dependencies = [
  "mutsuki-plugin-io-browser-chromium",
  "mutsuki-plugin-io-http-client",
  "mutsuki-plugin-resource-memory",
+ "mutsuki-plugin-resource-sqlite",
  "mutsuki-runtime-contracts",
 ]
 
@@ -5531,6 +5548,7 @@ dependencies = [
  "mutsuki-plugin-io-browser-chromium",
  "mutsuki-plugin-io-http-client",
  "mutsuki-plugin-resource-memory",
+ "mutsuki-plugin-resource-sqlite",
  "mutsuki-runtime-core",
  "mutsuki-service-runtime",
  "mutsuki-std-plugins",
@@ -7656,6 +7674,7 @@ dependencies = [
  "mutsuki-service-control",
  "mutsuki-service-ipc",
  "mutsuki-service-runtime",
+ "mutsuki-std-service-host-integration",
  "qqbot-echo",
  "serde_json",
  "tempfile",

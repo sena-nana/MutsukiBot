@@ -8,7 +8,7 @@ use mutsuki_bot_protocol::{
     BotFlowTypeRef,
 };
 use mutsuki_bot_service_host_integration::{
-    BotFlowRouterConfiguredPlugin, configured_bot_plugin_catalog,
+    BotFlowRouterConfiguredPlugin, DEFAULT_MEDIA_PROVIDER_ID, configured_bot_plugin_catalog,
 };
 use mutsuki_bot_testkit::FakeQqServer;
 use mutsuki_config_service::{ConfigProviderRegistry, ConfigService, InMemoryConfigRepository};
@@ -117,7 +117,7 @@ async fn run_connection_workload(idle_window: Option<Duration>) -> ConnectionRun
         )
         .unwrap(),
     );
-    let mut catalog = configured_bot_plugin_catalog().unwrap();
+    let mut catalog = configured_bot_plugin_catalog(DEFAULT_MEDIA_PROVIDER_ID.to_string()).unwrap();
     catalog
         .register(BotFlowRouterConfiguredPlugin::with_registry(
             config,

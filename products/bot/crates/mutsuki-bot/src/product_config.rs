@@ -42,6 +42,10 @@ use mutsuki_service_config::{
 
 pub const PRODUCT_CONFIG_PROVIDER_ID: &str = "mutsuki.product";
 
+/// Resource provider the product binds to every media-consuming plugin. The
+/// binding is owned by this assembly; owner documents no longer carry it.
+pub const MEDIA_RESOURCE_PROVIDER_ID: &str = mutsuki_plugin_resource_sqlite::PROVIDER_ID;
+
 #[derive(Debug, thiserror::Error)]
 pub enum ProductConfigError {
     #[error("product config provider registration failed: {0}")]
@@ -334,7 +338,7 @@ pub(crate) async fn register_configured_product_providers(
             .registry()
             .register(Arc::new(MemoryConfigProvider::new(
                 link_card_config_descriptor(plugin_id, title),
-                link_card_config_value(false, ""),
+                link_card_config_value(false),
                 ConfigApplyMode::HotReload,
             )))
             .map_err(register_error)?;
@@ -579,7 +583,9 @@ pub(crate) fn configured_plugin_selection_from_value(
                     base.and_then(|selection| serde_json::from_value(selection.config.clone()).ok())
                 })
                 .unwrap_or_default();
-            config.media_provider_id = optional_string_field(object, "media_provider_id");
+            // The product assembly owns the media resource provider binding;
+            // owner documents no longer carry a provider id.
+            config.media_provider_id = MEDIA_RESOURCE_PROVIDER_ID.into();
             if optional_string_field(object, "backend") == "open_platform" {
                 config.backend = BilibiliBackendConfig::OpenPlatform {
                     client_id: optional_string_field(object, "client_id"),
@@ -633,16 +639,10 @@ pub(crate) fn configured_plugin_selection_from_value(
         }
         WORKSHOP_PLUGIN_ID | MIHUASHI_PLUGIN_ID => {
             let enabled = bool_field(object, "enabled")?;
-            let media_provider_id = optional_string_field(object, "media_provider_id");
-            if enabled && media_provider_id.trim().is_empty() {
-                return Err(ConfigError::ApplyRejected {
-                    reason: "media_provider_id is required".into(),
-                });
-            }
             Ok(ConfiguredPluginSelection {
                 id: provider_id.into(),
                 enabled,
-                config: serde_json::json!({ "media_provider_id": media_provider_id }),
+                config: serde_json::json!({ "enabled": enabled }),
             })
         }
         _ => Err(ConfigError::ApplyRejected {
@@ -850,21 +850,16 @@ mod tests {
     }
 
     #[test]
-    fn enabled_bilibili_requires_media_provider_and_binds_secret_keys() {
+    fn enabled_bilibili_binds_product_media_provider_and_secret_keys() {
         let mut config = BilibiliConfig::default();
         config.management.enabled = true;
-        let error =
-            select_plugin(BILIBILI_PLUGIN_ID, bilibili_config_value(true, &config)).unwrap_err();
-        assert!(error.to_string().contains("media_provider_id"));
-
-        config.media_provider_id = "memory".into();
         config.management.admin_user_ids = vec!["admin".into()];
         config.management.self_binding_outbound_binding = "qq-main".into();
         let selected =
             select_plugin(BILIBILI_PLUGIN_ID, bilibili_config_value(true, &config)).unwrap();
         assert!(selected.enabled);
         let restored: BilibiliConfig = serde_json::from_value(selected.config).unwrap();
-        assert_eq!(restored.media_provider_id, "memory");
+        assert_eq!(restored.media_provider_id, MEDIA_RESOURCE_PROVIDER_ID);
         assert!(restored.management.enabled);
         assert_eq!(restored.management.admin_user_ids, vec!["admin".to_owned()]);
         assert_eq!(restored.management.self_binding_outbound_binding, "qq-main");
@@ -877,14 +872,12 @@ mod tests {
     #[test]
     fn open_platform_switch_forces_cookie_only_surfaces_off() {
         let mut config = BilibiliConfig::default();
-        config.media_provider_id = "memory".into();
         config.management.enabled = true;
         config.link_resolver.enabled = true;
         let value = bilibili_config_value(true, &config).to_json();
         let value = serde_json::json!({
             "enabled": true,
             "backend": "open_platform",
-            "media_provider_id": value["media_provider_id"],
             "client_id": "client",
             "app_secret": "configured",
             "oauth_credential": "configured",
@@ -914,21 +907,14 @@ mod tests {
     }
 
     #[test]
-    fn link_card_plugins_require_media_provider_only_when_enabled() {
+    fn link_card_owner_documents_only_carry_the_enable_switch() {
         for provider_id in [WORKSHOP_PLUGIN_ID, MIHUASHI_PLUGIN_ID] {
-            let disabled = select_plugin(provider_id, link_card_config_value(false, "")).unwrap();
+            let disabled = select_plugin(provider_id, link_card_config_value(false)).unwrap();
             assert!(!disabled.enabled);
 
-            let error = select_plugin(provider_id, link_card_config_value(true, "")).unwrap_err();
-            assert!(error.to_string().contains("media_provider_id"));
-
-            let enabled =
-                select_plugin(provider_id, link_card_config_value(true, "memory")).unwrap();
+            let enabled = select_plugin(provider_id, link_card_config_value(true)).unwrap();
             assert!(enabled.enabled);
-            assert_eq!(
-                enabled.config,
-                serde_json::json!({ "media_provider_id": "memory" })
-            );
+            assert_eq!(enabled.config, serde_json::json!({ "enabled": true }));
         }
     }
 

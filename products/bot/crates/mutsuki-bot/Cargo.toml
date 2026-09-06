@@ -34,6 +34,7 @@ mutsuki-plugin-bot-event-router.workspace = true
 mutsuki-plugin-bot-flow-agent-tool.workspace = true
 mutsuki-plugin-bot-mihuashi.workspace = true
 mutsuki-plugin-config-sqlite.workspace = true
+mutsuki-plugin-resource-sqlite.workspace = true
 mutsuki-std-service-host-integration.workspace = true
 mutsuki-service-control.workspace = true
 mutsuki-web-host = { workspace = true, optional = true }

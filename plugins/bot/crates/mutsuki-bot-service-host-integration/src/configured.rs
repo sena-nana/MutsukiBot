@@ -14,7 +14,7 @@ use mutsuki_bot_sdk::BotSubmissionGate;
 use mutsuki_bot_state_db::BotStateDbRepository;
 use mutsuki_config_service::{
     ConfigApplyMode, ConfigApplyRequest, ConfigConstraints, ConfigContext, ConfigDescriptor,
-    ConfigDocumentKey, ConfigExpr, ConfigKey, ConfigMutability, ConfigNode, ConfigPresentation,
+    ConfigDocumentKey, ConfigKey, ConfigMutability, ConfigNode, ConfigPresentation,
     ConfigProviderId, ConfigProviderRegistration, ConfigScope, ConfigService, ConfigValue,
     ConfigValueType, LocalizedText, MemoryConfigProvider, RestartPolicy, capability,
 };
@@ -68,6 +68,11 @@ use mutsuki_plugin_bot_bilibili_workshop::{
     PLUGIN_ID as WORKSHOP_PLUGIN_ID, ReqwestWorkshopTransport, WorkshopRunner,
 };
 use mutsuki_plugin_bot_mihuashi::PLUGIN_ID as MIHUASHI_PLUGIN_ID;
+
+/// Media resource provider id for assemblies that do not inject their own
+/// binding (tests, benchmarks and examples). Products pass the persistent
+/// SQLite provider explicitly.
+pub const DEFAULT_MEDIA_PROVIDER_ID: &str = mutsuki_plugin_resource_sqlite::PROVIDER_ID;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -570,6 +575,7 @@ impl ConfiguredPluginFactory for SandboxConfiguredPlugin {
 
 pub struct QqBotConfiguredPlugin {
     slot: SharedSandboxSlot,
+    media_provider_id: String,
 }
 
 impl ConfiguredPluginFactory for QqBotConfiguredPlugin {
@@ -582,14 +588,14 @@ impl ConfiguredPluginFactory for QqBotConfiguredPlugin {
         config: &Value,
         builder: ServiceRuntimeBuilder,
     ) -> Result<ServiceRuntimeBuilder, String> {
-        let config: QqBotConfig =
+        let mut config: QqBotConfig =
             serde_json::from_value(config.clone()).map_err(|error| error.to_string())?;
-        let media_provider_id = config.media_provider_id.clone();
+        // The product assembly owns the media resource provider binding; inbound
+        // media validation reads it back from the adapter config.
+        config.media_provider_id = Some(self.media_provider_id.clone());
         let mut bundle =
             QqBotPluginBundle::new(config).map_err(|error| error.redacted_message())?;
-        if let Some(provider_id) = media_provider_id {
-            bundle = bundle.with_resource_media_provider(provider_id);
-        }
+        bundle = bundle.with_resource_media_provider(self.media_provider_id.clone());
         if builder
             .configured_plugin_selection(SANDBOX_SERVICE_ID)
             .is_some()
@@ -608,13 +614,15 @@ impl ConfiguredPluginFactory for QqBotConfiguredPlugin {
 pub struct BilibiliConfiguredPlugin {
     config_service: Option<Arc<ConfigService>>,
     flow_registry: Option<Arc<BotFlowRegistry>>,
+    media_provider_id: String,
 }
 
 impl BilibiliConfiguredPlugin {
-    fn new(config_service: Option<Arc<ConfigService>>) -> Self {
+    fn new(config_service: Option<Arc<ConfigService>>, media_provider_id: String) -> Self {
         Self {
             config_service,
             flow_registry: None,
+            media_provider_id,
         }
     }
 
@@ -728,6 +736,9 @@ impl ConfiguredPluginFactory for BilibiliConfiguredPlugin {
     ) -> Result<ServiceRuntimeBuilder, String> {
         let mut config: BilibiliConfig =
             serde_json::from_value(config.clone()).map_err(|error| error.to_string())?;
+        // The product assembly owns the media resource provider binding; the
+        // owner document no longer carries a provider id.
+        config.media_provider_id = self.media_provider_id.clone();
         // The product pre-registers the owner config provider before plugins
         // install; only fall back to a plugin-owned provider when no product
         // owns this provider id yet.
@@ -967,24 +978,87 @@ impl ConfiguredPluginFactory for BilibiliConfiguredPlugin {
     }
 }
 
+/// Owner-document shape kept for backward compatibility: legacy documents may
+/// still carry a `media_provider_id` field, which the product assembly now
+/// ignores in favor of its own provider binding.
 #[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LinkCardPluginConfig {
+struct LinkCardPluginConfig {}
+
+pub struct WorkshopConfiguredPlugin {
     media_provider_id: String,
 }
 
-impl LinkCardPluginConfig {
-    fn validate(&self) -> Result<(), String> {
-        if self.media_provider_id.trim().is_empty() {
-            return Err("media_provider_id is required".into());
-        }
-        Ok(())
+impl ConfiguredPluginFactory for WorkshopConfiguredPlugin {
+    fn plugin_id(&self) -> &str {
+        WORKSHOP_PLUGIN_ID
+    }
+
+    fn prepare(
+        &self,
+        config: &Value,
+        builder: ServiceRuntimeBuilder,
+    ) -> Result<ServiceRuntimeBuilder, String> {
+        let _config: LinkCardPluginConfig =
+            serde_json::from_value(config.clone()).map_err(|error| error.to_string())?;
+        let mut manifest = mutsuki_plugin_bot_bilibili_workshop::manifest();
+        manifest.requires.push(SurfaceRequirement::new(
+            ContractSurfaceKind::ResourceProvider,
+            self.media_provider_id.clone(),
+        ));
+        BotSubmissionGate::ensure_manifest_business_surface(&manifest)
+            .map_err(|error| error.to_string())?;
+        let media_provider_id = self.media_provider_id.clone();
+        Ok(builder
+            .register_builtin_plugin(manifest)
+            .register_fallible_runtime_services_runner(move |_client, resources| {
+                let transport = ReqwestWorkshopTransport::new();
+                Ok::<Box<dyn mutsuki_runtime_core::Runner>, String>(Box::new(WorkshopRunner::new(
+                    Box::new(transport),
+                    resources,
+                    media_provider_id.clone(),
+                )))
+            }))
+    }
+}
+
+pub struct MihuashiConfiguredPlugin {
+    media_provider_id: String,
+}
+
+impl ConfiguredPluginFactory for MihuashiConfiguredPlugin {
+    fn plugin_id(&self) -> &str {
+        MIHUASHI_PLUGIN_ID
+    }
+
+    fn prepare(
+        &self,
+        config: &Value,
+        builder: ServiceRuntimeBuilder,
+    ) -> Result<ServiceRuntimeBuilder, String> {
+        let _config: LinkCardPluginConfig =
+            serde_json::from_value(config.clone()).map_err(|error| error.to_string())?;
+        let mut manifest = mutsuki_plugin_bot_mihuashi::manifest();
+        manifest.requires.push(SurfaceRequirement::new(
+            ContractSurfaceKind::ResourceProvider,
+            self.media_provider_id.clone(),
+        ));
+        manifest.requires.push(SurfaceRequirement::task_protocol(
+            "mutsuki.browser.snapshot",
+        ));
+        BotSubmissionGate::ensure_manifest_business_surface(&manifest)
+            .map_err(|error| error.to_string())?;
+        let media_provider_id = self.media_provider_id.clone();
+        Ok(builder
+            .register_builtin_plugin(manifest)
+            .register_runtime_services_runner(move |client, resources| {
+                mutsuki_plugin_bot_mihuashi::runner(client, resources, media_provider_id.clone())
+            }))
     }
 }
 
 /// Product-facing link-card plugin configuration shared by the Workshop and
-/// Mihuashi factories. The owner document only exposes the enable switch and
-/// the media provider binding.
+/// Mihuashi factories. The owner document only exposes the enable switch; the
+/// media resource provider binding is owned by the product assembly.
 pub fn link_card_config_descriptor(plugin_id: &str, title: &str) -> ConfigDescriptor {
     ConfigDescriptor {
         provider_id: ConfigProviderId::new(plugin_id),
@@ -1005,27 +1079,18 @@ pub fn link_card_config_descriptor(plugin_id: &str, title: &str) -> ConfigDescri
             enabled_if: None,
             mutability: ConfigMutability::ReadWrite,
             restart_policy: RestartPolicy::PluginReload,
-            children: vec![
-                bool_node("enabled", "启用", Some("关闭后不会加载该插件。")),
-                when_enabled(string_node("media_provider_id", "媒体资源 Provider")),
-            ],
+            children: vec![bool_node("enabled", "启用", Some("关闭后不会加载该插件。"))],
         },
         groups: Vec::new(),
     }
 }
 
 /// Projects the link-card owner document shape.
-pub fn link_card_config_value(enabled: bool, media_provider_id: &str) -> ConfigValue {
+pub fn link_card_config_value(enabled: bool) -> ConfigValue {
     ConfigValue::Object(
-        [
-            ("enabled".into(), ConfigValue::Bool(enabled)),
-            (
-                "media_provider_id".into(),
-                ConfigValue::String(media_provider_id.into()),
-            ),
-        ]
-        .into_iter()
-        .collect(),
+        [("enabled".into(), ConfigValue::Bool(enabled))]
+            .into_iter()
+            .collect(),
     )
 }
 
@@ -1037,22 +1102,6 @@ fn bool_node(key: &str, title: &str, description: Option<&str>) -> ConfigNode {
         ConfigConstraints::default(),
     );
     node.description = description.map(LocalizedText::new);
-    node
-}
-
-fn string_node(key: &str, title: &str) -> ConfigNode {
-    field_node(
-        key,
-        title,
-        ConfigValueType::String { multiline: false },
-        ConfigConstraints::default(),
-    )
-}
-
-fn when_enabled(mut node: ConfigNode) -> ConfigNode {
-    node.enabled_if = Some(ConfigExpr::Field {
-        key: ConfigKey::new("enabled"),
-    });
     node
 }
 
@@ -1078,78 +1127,6 @@ fn field_node(
     }
 }
 
-pub struct WorkshopConfiguredPlugin;
-
-impl ConfiguredPluginFactory for WorkshopConfiguredPlugin {
-    fn plugin_id(&self) -> &str {
-        WORKSHOP_PLUGIN_ID
-    }
-
-    fn prepare(
-        &self,
-        config: &Value,
-        builder: ServiceRuntimeBuilder,
-    ) -> Result<ServiceRuntimeBuilder, String> {
-        let config: LinkCardPluginConfig =
-            serde_json::from_value(config.clone()).map_err(|error| error.to_string())?;
-        config.validate()?;
-        let mut manifest = mutsuki_plugin_bot_bilibili_workshop::manifest();
-        manifest.requires.push(SurfaceRequirement::new(
-            ContractSurfaceKind::ResourceProvider,
-            config.media_provider_id.clone(),
-        ));
-        BotSubmissionGate::ensure_manifest_business_surface(&manifest)
-            .map_err(|error| error.to_string())?;
-        Ok(builder
-            .register_builtin_plugin(manifest)
-            .register_fallible_runtime_services_runner(move |_client, resources| {
-                let transport = ReqwestWorkshopTransport::new();
-                Ok::<Box<dyn mutsuki_runtime_core::Runner>, String>(Box::new(WorkshopRunner::new(
-                    Box::new(transport),
-                    resources,
-                    config.media_provider_id.clone(),
-                )))
-            }))
-    }
-}
-
-pub struct MihuashiConfiguredPlugin;
-
-impl ConfiguredPluginFactory for MihuashiConfiguredPlugin {
-    fn plugin_id(&self) -> &str {
-        MIHUASHI_PLUGIN_ID
-    }
-
-    fn prepare(
-        &self,
-        config: &Value,
-        builder: ServiceRuntimeBuilder,
-    ) -> Result<ServiceRuntimeBuilder, String> {
-        let config: LinkCardPluginConfig =
-            serde_json::from_value(config.clone()).map_err(|error| error.to_string())?;
-        config.validate()?;
-        let mut manifest = mutsuki_plugin_bot_mihuashi::manifest();
-        manifest.requires.push(SurfaceRequirement::new(
-            ContractSurfaceKind::ResourceProvider,
-            config.media_provider_id.clone(),
-        ));
-        manifest.requires.push(SurfaceRequirement::task_protocol(
-            "mutsuki.browser.snapshot",
-        ));
-        BotSubmissionGate::ensure_manifest_business_surface(&manifest)
-            .map_err(|error| error.to_string())?;
-        Ok(builder
-            .register_builtin_plugin(manifest)
-            .register_runtime_services_runner(move |client, resources| {
-                mutsuki_plugin_bot_mihuashi::runner(
-                    client,
-                    resources,
-                    config.media_provider_id.clone(),
-                )
-            }))
-    }
-}
-
 /// Catalog of production Bot plugins that can be selected by ServiceHost configuration.
 /// Media upload is intentionally absent until a product registers an explicit provider-backed
 /// QQ factory of its own.
@@ -1157,37 +1134,50 @@ impl ConfiguredPluginFactory for MihuashiConfiguredPlugin {
 /// Conversation-context, reply and persona runners are registered by
 /// `BotAgentConfiguredPlugin` against the shared `BotStateDb` file. They are not
 /// independently selectable factories (that path used a process-local Memory store).
-pub fn configured_bot_plugin_catalog() -> ServiceRuntimeResult<ConfiguredPluginCatalog> {
-    configured_bot_plugin_catalog_inner(None, None)
+pub fn configured_bot_plugin_catalog(
+    media_provider_id: String,
+) -> ServiceRuntimeResult<ConfiguredPluginCatalog> {
+    configured_bot_plugin_catalog_inner(None, None, media_provider_id)
 }
 
 fn configured_bot_plugin_catalog_inner(
     config: Option<Arc<ConfigService>>,
     flow_registry: Option<Arc<BotFlowRegistry>>,
+    media_provider_id: String,
 ) -> ServiceRuntimeResult<ConfiguredPluginCatalog> {
     let mut catalog = ConfiguredPluginCatalog::new();
     let slot: SharedSandboxSlot = Arc::new(OnceLock::new());
     catalog.register(LegacyBotEventRouterConfiguredPlugin)?;
     catalog.register(BotCommandConfiguredPlugin)?;
     catalog.register(SandboxConfiguredPlugin { slot: slot.clone() })?;
-    catalog.register(QqBotConfiguredPlugin { slot })?;
+    catalog.register(QqBotConfiguredPlugin {
+        slot,
+        media_provider_id: media_provider_id.clone(),
+    })?;
     let bilibili = match flow_registry.clone() {
-        Some(registry) => BilibiliConfiguredPlugin::new(config).with_flow_registry(registry),
-        None => BilibiliConfiguredPlugin::new(config),
+        Some(registry) => BilibiliConfiguredPlugin::new(config, media_provider_id.clone())
+            .with_flow_registry(registry),
+        None => BilibiliConfiguredPlugin::new(config, media_provider_id.clone()),
     };
     catalog.register(bilibili)?;
-    catalog.register(WorkshopConfiguredPlugin)?;
-    catalog.register(MihuashiConfiguredPlugin)?;
+    catalog.register(WorkshopConfiguredPlugin {
+        media_provider_id: media_provider_id.clone(),
+    })?;
+    catalog.register(MihuashiConfiguredPlugin { media_provider_id })?;
     Ok(catalog)
 }
 
 /// Adds the Flow Router only when product bootstrap supplies ConfigService.
 pub fn configured_bot_plugin_catalog_with_config(
     config: Arc<ConfigService>,
+    media_provider_id: String,
 ) -> ServiceRuntimeResult<ConfiguredPluginCatalog> {
     let flow_registry = Arc::new(BotFlowRegistry::new(BotNodeCatalog::default()));
-    let mut catalog =
-        configured_bot_plugin_catalog_inner(Some(config.clone()), Some(flow_registry.clone()))?;
+    let mut catalog = configured_bot_plugin_catalog_inner(
+        Some(config.clone()),
+        Some(flow_registry.clone()),
+        media_provider_id,
+    )?;
     catalog.register(BotFlowRouterConfiguredPlugin::with_registry(
         config,
         flow_registry,
@@ -1204,9 +1194,13 @@ pub fn configured_bot_plugin_catalog_with_agent_and_flow(
     connections: AgentConnectionRegistry,
     flow_registry: Arc<BotFlowRegistry>,
     seed_flow: Option<BotFlowDocument>,
+    media_provider_id: String,
 ) -> ServiceRuntimeResult<ConfiguredPluginCatalog> {
-    let mut catalog =
-        configured_bot_plugin_catalog_inner(Some(config.clone()), Some(flow_registry.clone()))?;
+    let mut catalog = configured_bot_plugin_catalog_inner(
+        Some(config.clone()),
+        Some(flow_registry.clone()),
+        media_provider_id,
+    )?;
     catalog.register(BotFlowRouterConfiguredPlugin {
         config,
         registry: Some(flow_registry),
@@ -1342,7 +1336,9 @@ mod tests {
         }];
 
         let error = match ServiceRuntimeBuilder::new(service)
-            .with_configured_plugin_catalog(configured_bot_plugin_catalog().unwrap())
+            .with_configured_plugin_catalog(
+                configured_bot_plugin_catalog(DEFAULT_MEDIA_PROVIDER_ID.to_string()).unwrap(),
+            )
             .start()
             .await
         {
@@ -1455,10 +1451,11 @@ mod tests {
                 "self_binding_outbound_binding": "qq-main"
             }
         });
-        let error = match BilibiliConfiguredPlugin::new(None).prepare(
-            &config,
-            ServiceRuntimeBuilder::new(ServiceConfig::default()),
-        ) {
+        let error = match BilibiliConfiguredPlugin::new(None, DEFAULT_MEDIA_PROVIDER_ID.to_string())
+            .prepare(
+                &config,
+                ServiceRuntimeBuilder::new(ServiceConfig::default()),
+            ) {
             Ok(_) => panic!("Bilibili management unexpectedly accepted missing Host stores"),
             Err(error) => error,
         };
@@ -1490,7 +1487,7 @@ mod tests {
                 "self_binding_outbound_binding": ""
             }
         });
-        let error = BilibiliConfiguredPlugin::new(None)
+        let error = BilibiliConfiguredPlugin::new(None, DEFAULT_MEDIA_PROVIDER_ID.to_string())
             .prepare(
                 &config,
                 ServiceRuntimeBuilder::new(ServiceConfig::default()),

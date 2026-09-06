@@ -12,8 +12,9 @@ use mutsuki_plugin_io_browser_chromium::ChromiumConfig;
 use mutsuki_plugin_io_http_client::HttpClientConfig;
 use mutsuki_runtime_contracts::{ContractSurfaceKind, PluginManifest, SurfaceRequirement};
 
-pub const STD_PLUGIN_IDS: [&str; 4] = [
+pub const STD_PLUGIN_IDS: [&str; 5] = [
     mutsuki_plugin_resource_memory::PLUGIN_ID,
+    mutsuki_plugin_resource_sqlite::PLUGIN_ID,
     mutsuki_plugin_io_browser_chromium::PLUGIN_ID,
     mutsuki_plugin_io_http_client::PLUGIN_ID,
     mutsuki_plugin_image_render::PLUGIN_ID,
@@ -29,13 +30,26 @@ impl StdPluginCatalog {
     }
 
     #[must_use]
-    pub const fn plugin_ids(self) -> [&'static str; 4] {
+    pub const fn plugin_ids(self) -> [&'static str; 5] {
         STD_PLUGIN_IDS
     }
 
     #[must_use]
     pub fn memory_resource_manifest(self) -> PluginManifest {
         mutsuki_plugin_resource_memory::loaded_plugin().manifest
+    }
+
+    /// Builds the SQLite resource plugin manifest after validating deployment config.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the database path is invalid.
+    pub fn sqlite_resource_manifest(
+        self,
+        config: &mutsuki_plugin_resource_sqlite::SqliteResourceConfig,
+    ) -> Result<PluginManifest, String> {
+        config.validate()?;
+        Ok(mutsuki_plugin_resource_sqlite::manifest())
     }
 
     /// Builds the Chromium plugin manifest after validating deployment config.
@@ -97,6 +111,7 @@ mod tests {
         let ids = catalog.plugin_ids();
         assert_eq!(ids.len(), STD_PLUGIN_IDS.len());
         assert!(ids.contains(&mutsuki_plugin_resource_memory::PLUGIN_ID));
+        assert!(ids.contains(&mutsuki_plugin_resource_sqlite::PLUGIN_ID));
         assert!(ids.contains(&mutsuki_plugin_image_render::PLUGIN_ID));
         assert_eq!(catalog.memory_resource_manifest().plugin_id, ids[0]);
     }

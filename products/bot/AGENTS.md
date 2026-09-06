@@ -48,8 +48,9 @@ Issue 是需求线索，不是当前 API 的事实源。存在 `.codegraph/` 时
 6. RuntimeProfile/RuntimeLoadPlan 是装配权威；registry freeze 后不得动态越权注册。
 7. 缺失 capability、配置、secret、artifact 或 revision 必须结构化失败，禁止假成功和吞错。
 8. 生产入口不接受配置路径、profile 或 namespace；产品显式选择固定 SQLite 配置仓库，但框架不假设路径或存储实现。空仓库只写一次版本化种子，直接启用 Agent Connections、Flow Router 与对应管理页，并把 `qq.business.full` 全量参考图作为 Flow 种子（已有 Flow 记录永不覆盖；节点目录不完整时种子不应用并保持空图）；QQ、Local Agent、Bot Agent、内置平台插件（B 站、B 站工房、米画师）和业务 Flow 的实际生效仍由保存后的 owner 配置显式启用，`runtime_plugins` 不得配置这些 owner 插件。Mock 仅限测试。
-9. `sena-nana/MutsukiBotTemplate` 已退出源码和分发职责；不得恢复独立实现、Issue 或发布同步。
-10. `create-bot` 只生成固定统一 revision、调用公开产品 API 的外部薄壳；不得复制第一方产品、
+9. 产品自动装配持久化媒体资源 Provider `mutsuki.std.resource.sqlite`（数据库文件位于实例 `data/resources.sqlite`），并向 QQ、B 站、B 站工房与米画师工厂注入唯一 Provider 绑定；owner 配置文档不再携带 `media_provider_id` 字段，旧文档中的残留字段被忽略。
+10. `sena-nana/MutsukiBotTemplate` 已退出源码和分发职责；不得恢复独立实现、Issue 或发布同步。
+11. `create-bot` 只生成固定统一 revision、调用公开产品 API 的外部薄壳；不得复制第一方产品、
     Host、Bot、Agent 或插件实现，不得写入 Secret，也不得覆盖已有目录。
 
 ## Git 与验证

@@ -38,6 +38,7 @@ mutsuki-plugin-bot-reply.workspace = true
 mutsuki-plugin-bot-bilibili.workspace = true
 mutsuki-plugin-bot-bilibili-workshop.workspace = true
 mutsuki-plugin-bot-mihuashi.workspace = true
+mutsuki-plugin-resource-sqlite = { path = "../../../std/plugins/mutsuki-plugin-resource-sqlite" }
 fastrand.workspace = true
 futures.workspace = true
 futures-executor = "0.3"
@@ -48,6 +49,7 @@ tokio-tungstenite.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+mutsuki-std-service-host-integration.workspace = true
 mutsuki-bot-web-console.workspace = true
 mutsuki-plugin-bot-qq-web.workspace = true
 mutsuki-bot-testkit.workspace = true

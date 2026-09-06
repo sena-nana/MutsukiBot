@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use mutsuki_bot_service_host_integration::configured_bot_plugin_catalog;
+use mutsuki_bot_service_host_integration::{
+    DEFAULT_MEDIA_PROVIDER_ID, configured_bot_plugin_catalog,
+};
 use mutsuki_bot_testkit::{FakeQqGatewayScript, FakeQqIdentifyOutcome, FakeQqServer};
 use mutsuki_service_config::{ConfigOverrides, ServiceConfig};
 use mutsuki_service_runtime::ServiceRuntimeBuilder;
@@ -35,11 +37,20 @@ async fn gateway_recovery_chooses_identify_or_resume() {
             ..Default::default()
         })
         .unwrap();
-        let runtime = ServiceRuntimeBuilder::new(config)
-            .with_configured_plugin_catalog(configured_bot_plugin_catalog().unwrap())
-            .start()
-            .await
-            .unwrap();
+        let runtime = {
+            let mut catalog =
+                mutsuki_std_service_host_integration::configured_std_plugin_catalog().unwrap();
+            catalog
+                .merge(
+                    configured_bot_plugin_catalog(DEFAULT_MEDIA_PROVIDER_ID.to_string()).unwrap(),
+                )
+                .unwrap();
+            ServiceRuntimeBuilder::new(config)
+                .with_configured_plugin_catalog(catalog)
+                .start()
+                .await
+                .unwrap()
+        };
         let frames = fake.wait_for_auth_frames(2, Duration::from_secs(3)).await;
         assert_eq!(frames[0]["op"], 2, "{after_identify:?}");
         assert_eq!(frames[1]["op"], expected_op, "{after_identify:?}");
@@ -73,6 +84,12 @@ dynamic_dirs = []
 disabled_dir = "disabled"
 
 [[plugins.configured]]
+id = "mutsuki.std.resource.sqlite"
+
+[plugins.configured.config]
+database_path = "{}"
+
+[[plugins.configured]]
 id = "mutsuki.bot.adapter.qqbot"
 [plugins.configured.config]
 account_id = "{}"
@@ -100,6 +117,9 @@ panic_file = "panic.log"
 "#,
         qq.client_secret_key,
         root.to_string_lossy().replace('\\', "/"),
+        root.join("resources.sqlite")
+            .to_string_lossy()
+            .replace('\\', "/"),
         qq.account_id,
         qq.app_id,
         qq.client_secret_key,

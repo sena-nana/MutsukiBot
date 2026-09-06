@@ -1,7 +1,10 @@
 # MutsukiStdPlugins
 
 标准插件 owner catalog 由 `mutsuki-std-plugins::configured_std_plugin_catalog()`
-提供。目前 catalog 注册内存资源 Provider 与显式配置的 Chromium browser 插件。
+提供。目前 catalog 注册内存与 SQLite 资源 Provider，以及显式配置的 Chromium
+browser 插件。SQLite 资源 Provider（`mutsuki.std.resource.sqlite`）把 blob/COW
+资源持久化到产品指定的数据库文件，重启后可恢复，并通过 capability 的 `delete`
+命令清理一次性资源。
 
 Browser 协议为 `mutsuki.browser.snapshot`。调用方必须预创建 schema 为
 `mutsuki.browser.snapshot.output.v1` 的 COW output resource；runner 完成后写入

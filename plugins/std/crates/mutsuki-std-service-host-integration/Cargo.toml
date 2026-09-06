@@ -9,6 +9,7 @@ mutsuki-plugin-image-render.workspace = true
 mutsuki-plugin-io-browser-chromium = { path = "../../plugins/mutsuki-plugin-io-browser-chromium" }
 mutsuki-plugin-io-http-client = { path = "../../plugins/mutsuki-plugin-io-http-client" }
 mutsuki-plugin-resource-memory = { path = "../../plugins/mutsuki-plugin-resource-memory" }
+mutsuki-plugin-resource-sqlite = { path = "../../plugins/mutsuki-plugin-resource-sqlite" }
 mutsuki-runtime-core.workspace = true
 mutsuki-service-runtime.workspace = true
 mutsuki-std-plugins.workspace = true

@@ -366,6 +366,7 @@ pub struct BilibiliConfig {
     pub retry: RetryConfig,
     pub subscriptions: Vec<BilibiliSubscription>,
     pub link_resolver: LinkResolverConfig,
+    #[serde(default)]
     pub media_provider_id: String,
     #[serde(default)]
     pub risk_control: Option<BilibiliRiskControlConfig>,

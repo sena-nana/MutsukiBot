@@ -22,6 +22,7 @@ mutsuki-service-config.workspace = true
 mutsuki-service-control.workspace = true
 mutsuki-service-ipc.workspace = true
 mutsuki-service-runtime.workspace = true
+mutsuki-std-service-host-integration.workspace = true
 mutsuki-plugin-bot-adapter-qqbot.workspace = true
 mutsuki-bot-service-host-integration.workspace = true
 mutsuki-plugin-bot-command.workspace = true

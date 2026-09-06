@@ -9,7 +9,9 @@ use mutsuki_config_service::{
     ConfigValue, ConfigValueType, LocalizedText, MemoryConfigProvider, RestartPolicy, capability,
 };
 use mutsuki_plugin_config_sqlite::SqliteConfigRepository;
-use mutsuki_service_config::{ServiceConfig, recover_host_secret_transaction};
+use mutsuki_service_config::{
+    ConfiguredPluginSelection, ServiceConfig, recover_host_secret_transaction,
+};
 
 use crate::{
     PRODUCT_CONFIG_PROVIDER_ID, ProductConfigOptions, configured_product_owner_selections,
@@ -161,6 +163,7 @@ where
     service.plugins.configured = configured_product_selections(&product, owner_selections)
         .map_err(|error| error.to_string())?;
     apply_lilia_image_render_fonts(&mut service, root)?;
+    ensure_sqlite_resource_plugin(&mut service, root)?;
     let agent_connections = AgentConnectionRegistry::new();
     Ok(SingleInstanceProduct {
         service,
@@ -204,6 +207,38 @@ const LILIA_FONT_FILES: &[&str] = &[
     "noto-sans-sc-chinese-simplified-500-normal.woff2",
     "noto-sans-sc-chinese-simplified-600-normal.woff2",
 ];
+
+/// Seeds the persistent media resource provider every product plugin binds to.
+/// An existing selection keeps its configured database path; only a missing
+/// path falls back to the instance data directory.
+fn ensure_sqlite_resource_plugin(service: &mut ServiceConfig, root: &Path) -> Result<(), String> {
+    let config = serde_json::json!({
+        "database_path": root.join("data").join("resources.sqlite").to_string_lossy(),
+    });
+    if let Some(plugin) = service
+        .plugins
+        .configured
+        .iter_mut()
+        .find(|plugin| plugin.id == mutsuki_plugin_resource_sqlite::PLUGIN_ID)
+    {
+        plugin.enabled = true;
+        if plugin
+            .config
+            .get("database_path")
+            .and_then(serde_json::Value::as_str)
+            .is_none_or(|path| path.trim().is_empty())
+        {
+            plugin.config = config;
+        }
+        return Ok(());
+    }
+    service.plugins.configured.push(ConfiguredPluginSelection {
+        id: mutsuki_plugin_resource_sqlite::PLUGIN_ID.into(),
+        enabled: true,
+        config,
+    });
+    Ok(())
+}
 
 fn apply_lilia_image_render_fonts(service: &mut ServiceConfig, root: &Path) -> Result<(), String> {
     let Some(plugin) = service

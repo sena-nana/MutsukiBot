@@ -19,7 +19,6 @@ dynamic_interval_ms = 120000
 video_interval_ms = 300000
 retry = { max_attempts = 3, initial_backoff_ms = 1000, max_backoff_ms = 30000 }
 link_resolver = { enabled = false, cooldown_ms = 1000, account_to_binding = {} }
-media_provider_id = "mutsuki.std.resource.memory"
 subscriptions = []
 management = { enabled = false, allow_self_binding = false, admin_user_ids = [], self_binding_notifications = ["live", "video"], self_binding_outbound_binding = "" }
 ```

@@ -13,7 +13,7 @@ use bot_echo::{echo_manifest, echo_runner};
 use mutsuki_bot_flow::{BotFlowRegistry, BotNodeCatalog};
 use mutsuki_bot_protocol::BotFlowSnapshot;
 use mutsuki_bot_service_host_integration::{
-    BotFlowRouterConfiguredPlugin, configured_bot_plugin_catalog,
+    BotFlowRouterConfiguredPlugin, DEFAULT_MEDIA_PROVIDER_ID, configured_bot_plugin_catalog,
 };
 use mutsuki_bot_testkit::FakeQqServer;
 use mutsuki_config_service::{ConfigProviderRegistry, ConfigService, InMemoryConfigRepository};
@@ -33,7 +33,9 @@ async fn configured_qqbot_requires_host_secret_during_service_preflight() {
     let mut service = test_service_config().await.0;
     service.plugins.configured = vec![configured_qq("MISSING_QQBOT_SECRET", json!({}))];
     let error = match ServiceRuntimeBuilder::new(service)
-        .with_configured_plugin_catalog(configured_bot_plugin_catalog().unwrap())
+        .with_configured_plugin_catalog(
+            configured_bot_plugin_catalog(DEFAULT_MEDIA_PROVIDER_ID.to_string()).unwrap(),
+        )
         .start()
         .await
     {
@@ -75,7 +77,10 @@ async fn configured_service_runtime_runs_resume_echo_ping_and_clean_shutdown() {
         )
         .unwrap(),
     );
-    let mut catalog = configured_bot_plugin_catalog().unwrap();
+    let mut catalog = configured_bot_plugin_catalog(DEFAULT_MEDIA_PROVIDER_ID.to_string()).unwrap();
+    catalog
+        .merge(mutsuki_std_service_host_integration::configured_std_plugin_catalog().unwrap())
+        .unwrap();
     catalog
         .register(BotFlowRouterConfiguredPlugin::with_registry(
             config,
@@ -199,6 +204,12 @@ id = "example.bot.echo"
 [plugins.configured.config]
 
 [[plugins.configured]]
+id = "mutsuki.std.resource.sqlite"
+
+[plugins.configured.config]
+database_path = "{}"
+
+[[plugins.configured]]
 id = "mutsuki.bot.adapter.qqbot"
 [plugins.configured.config]
 account_id = "{}"
@@ -226,6 +237,9 @@ panic_file = "panic.log"
 "#,
         root.to_string_lossy().replace('\\', "/"),
         ipc_addr,
+        root.join("resources.sqlite")
+            .to_string_lossy()
+            .replace('\\', "/"),
         qq.account_id,
         qq.app_id,
         qq.client_secret_key,

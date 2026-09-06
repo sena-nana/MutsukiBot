@@ -18,7 +18,9 @@ use mutsuki_bot_protocol::{
     BotNodeDescriptor, BotNodeInvocation, BotNodePortDescriptor, BotNodePortDirection,
     BotNodeResult, BotNodeRole, BotTarget, MessageSegment,
 };
-use mutsuki_bot_service_host_integration::configured_bot_plugin_catalog;
+use mutsuki_bot_service_host_integration::{
+    DEFAULT_MEDIA_PROVIDER_ID, configured_bot_plugin_catalog,
+};
 use mutsuki_bot_testkit::{FakeQqGatewayScript, FakeQqServer};
 use mutsuki_plugin_bot_adapter_qqbot::tasks::{
     QQ_NODE_BOT_CONNECTED, QQ_NODE_BOT_DISCONNECTED, QQ_NODE_MEMBER_JOINED, QQ_NODE_MEMBER_LEFT,
@@ -241,8 +243,13 @@ async fn fake_gateway_delivers_private_group_channel_and_distinct_delete_once() 
     let runner_descriptor = descriptor.clone();
     let runner_events = events.clone();
     let runner_notify = notify.clone();
+    let mut catalog =
+        mutsuki_std_service_host_integration::configured_std_plugin_catalog().unwrap();
+    catalog
+        .merge(configured_bot_plugin_catalog(DEFAULT_MEDIA_PROVIDER_ID.to_string()).unwrap())
+        .unwrap();
     let runtime = ServiceRuntimeBuilder::new(config)
-        .with_configured_plugin_catalog(configured_bot_plugin_catalog().unwrap())
+        .with_configured_plugin_catalog(catalog)
         .register_builtin_loaded_plugin_factory(flow_manifest, move || {
             Ok::<mutsuki_runtime_sdk::LoadedPlugin, String>(mutsuki_runtime_sdk::LoadedPlugin {
                 manifest: loaded_flow_manifest.clone(),
@@ -403,6 +410,12 @@ dynamic_dirs = []
 disabled_dir = "disabled"
 
 [[plugins.configured]]
+id = "mutsuki.std.resource.sqlite"
+
+[plugins.configured.config]
+database_path = "{}"
+
+[[plugins.configured]]
 id = "mutsuki.bot.adapter.qqbot"
 [plugins.configured.config]
 account_id = "{}"
@@ -435,6 +448,9 @@ log_file = "service.log"
 panic_file = "panic.log"
 "#,
         root.to_string_lossy().replace('\\', "/"),
+        root.join("resources.sqlite")
+            .to_string_lossy()
+            .replace('\\', "/"),
         qq.account_id,
         qq.app_id,
         qq.client_secret_key,

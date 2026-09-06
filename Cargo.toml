@@ -213,6 +213,7 @@ mutsuki-protocol-config = { path = "plugins/std/protocols/mutsuki-protocol-confi
 mutsuki-protocol-http = { path = "plugins/std/protocols/mutsuki-protocol-http" }
 mutsuki-protocol-image = { path = "plugins/std/protocols/mutsuki-protocol-image" }
 mutsuki-plugin-image-render = { path = "plugins/std/plugins/mutsuki-plugin-image-render-takumi" }
+mutsuki-plugin-resource-sqlite = { path = "plugins/std/plugins/mutsuki-plugin-resource-sqlite" }
 mutsuki-plugin-config-sqlite = { path = "plugins/std/plugins/mutsuki-plugin-config-sqlite" }
 mutsuki-std-effect = { path = "plugins/std/crates/mutsuki-std-effect" }
 mutsuki-std-plugins = { path = "plugins/std/crates/mutsuki-std-plugins" }

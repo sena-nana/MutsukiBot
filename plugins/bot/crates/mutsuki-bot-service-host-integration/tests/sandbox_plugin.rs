@@ -4,7 +4,9 @@ use mutsuki_bot_protocol::BotConversationKind;
 use mutsuki_bot_sandbox::{
     SANDBOX_SERVICE_ID, SandboxAction, SandboxApi, SandboxMode, SandboxService, SandboxWriteRequest,
 };
-use mutsuki_bot_service_host_integration::configured_bot_plugin_catalog;
+use mutsuki_bot_service_host_integration::{
+    DEFAULT_MEDIA_PROVIDER_ID, configured_bot_plugin_catalog,
+};
 use mutsuki_bot_testkit::{FakeQqGatewayScript, FakeQqServer};
 use mutsuki_plugin_bot_adapter_qqbot::QQBOT_ADAPTER_PLUGIN_ID;
 use mutsuki_service_config::{ConfigOverrides, ServiceConfig};
@@ -19,11 +21,18 @@ async fn qq_only_catalog_still_self_registers_sandbox() {
     })
     .await;
     let (config, _root) = qq_service_config(&fake, false);
-    let runtime = ServiceRuntimeBuilder::new(config)
-        .with_configured_plugin_catalog(configured_bot_plugin_catalog().unwrap())
-        .start()
-        .await
-        .unwrap();
+    let runtime = {
+        let mut catalog =
+            mutsuki_std_service_host_integration::configured_std_plugin_catalog().unwrap();
+        catalog
+            .merge(configured_bot_plugin_catalog(DEFAULT_MEDIA_PROVIDER_ID.to_string()).unwrap())
+            .unwrap();
+        ServiceRuntimeBuilder::new(config)
+            .with_configured_plugin_catalog(catalog)
+            .start()
+            .await
+            .unwrap()
+    };
     let snapshot = runtime
         .host_service::<SandboxService>(SANDBOX_SERVICE_ID)
         .expect("QQ-only catalog must still register sandbox")
@@ -58,11 +67,18 @@ async fn workspace_sandbox_and_qq_share_one_host_service() {
     })
     .await;
     let (config, _root) = qq_service_config(&fake, true);
-    let runtime = ServiceRuntimeBuilder::new(config)
-        .with_configured_plugin_catalog(configured_bot_plugin_catalog().unwrap())
-        .start()
-        .await
-        .expect("workspace sandbox plus QQ must not register a duplicate host service");
+    let runtime = {
+        let mut catalog =
+            mutsuki_std_service_host_integration::configured_std_plugin_catalog().unwrap();
+        catalog
+            .merge(configured_bot_plugin_catalog(DEFAULT_MEDIA_PROVIDER_ID.to_string()).unwrap())
+            .unwrap();
+        ServiceRuntimeBuilder::new(config)
+            .with_configured_plugin_catalog(catalog)
+            .start()
+            .await
+            .expect("workspace sandbox plus QQ must not register a duplicate host service")
+    };
     let sandbox = runtime
         .host_service::<SandboxService>(SANDBOX_SERVICE_ID)
         .unwrap();
@@ -153,6 +169,12 @@ dynamic_dirs = []
 disabled_dir = "disabled"
 {sandbox_selection}
 [[plugins.configured]]
+id = "mutsuki.std.resource.sqlite"
+
+[plugins.configured.config]
+database_path = "{}"
+
+[[plugins.configured]]
 id = "{QQBOT_ADAPTER_PLUGIN_ID}"
 [plugins.configured.config]
 account_id = "{}"
@@ -180,6 +202,10 @@ panic_file = "panic.log"
 "#,
             qq.client_secret_key,
             root.path().to_string_lossy().replace('\\', "/"),
+            root.path()
+                .join("resources.sqlite")
+                .to_string_lossy()
+                .replace('\\', "/"),
             qq.account_id,
             qq.app_id,
             qq.client_secret_key,

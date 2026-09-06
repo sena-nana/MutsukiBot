@@ -122,6 +122,7 @@ pub fn assemble_service_with_flow_registry(
         agent_connections,
         flow_registry,
         Some(qq_full_business_flow()),
+        MEDIA_RESOURCE_PROVIDER_ID.to_string(),
     )?)?;
     Ok(ServiceRuntimeBuilder::new(service).with_configured_plugin_catalog(catalog))
 }

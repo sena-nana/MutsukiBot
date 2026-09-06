@@ -37,6 +37,38 @@ impl ConfiguredPluginFactory for MemoryResourcePluginFactory {
     }
 }
 
+pub struct SqliteResourcePluginFactory;
+
+impl ConfiguredPluginFactory for SqliteResourcePluginFactory {
+    fn plugin_id(&self) -> &str {
+        mutsuki_plugin_resource_sqlite::PLUGIN_ID
+    }
+
+    fn prepare(
+        &self,
+        config: &Value,
+        builder: ServiceRuntimeBuilder,
+    ) -> Result<ServiceRuntimeBuilder, String> {
+        let config: mutsuki_plugin_resource_sqlite::SqliteResourceConfig =
+            serde_json::from_value(config.clone())
+                .map_err(|error| format!("invalid sqlite resource provider config: {error}"))?;
+        config.validate()?;
+        let database_path = config.database_path.clone();
+        let manifest = std_plugin_catalog().sqlite_resource_manifest(&config)?;
+        Ok(
+            builder.register_builtin_loaded_plugin_factory(manifest, move || {
+                let provider = mutsuki_plugin_resource_sqlite::SqliteResourceProvider::open(
+                    std::path::Path::new(&database_path),
+                )
+                .map_err(|error| format!("{}: {}", error.error().code, error.error().route))?;
+                Ok::<_, String>(mutsuki_plugin_resource_sqlite::loaded_plugin_with_provider(
+                    provider,
+                ))
+            }),
+        )
+    }
+}
+
 pub struct ChromiumPluginFactory;
 
 impl ConfiguredPluginFactory for ChromiumPluginFactory {
@@ -125,6 +157,7 @@ impl ConfiguredPluginFactory for HttpClientPluginFactory {
 pub fn configured_std_plugin_catalog() -> ServiceRuntimeResult<ConfiguredPluginCatalog> {
     let mut catalog = ConfiguredPluginCatalog::new();
     catalog.register(MemoryResourcePluginFactory)?;
+    catalog.register(SqliteResourcePluginFactory)?;
     catalog.register(ChromiumPluginFactory)?;
     catalog.register(HttpClientPluginFactory)?;
     catalog.register(ImageRenderPluginFactory)?;
