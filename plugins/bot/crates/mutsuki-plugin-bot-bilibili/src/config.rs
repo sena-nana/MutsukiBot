@@ -7,8 +7,8 @@
 
 use mutsuki_config_service::{
     ConfigConstraints, ConfigDescriptor, ConfigExpr, ConfigKey, ConfigMutability, ConfigNode,
-    ConfigPresentation, ConfigProviderId, ConfigScope, ConfigValue, ConfigValueType, EnumOption,
-    LocalizedText, RestartPolicy, SecretState,
+    ConfigPresentation, ConfigProviderId, ConfigScope, ConfigValue, ConfigValueType, LocalizedText,
+    RestartPolicy, SecretState,
 };
 
 use crate::{BilibiliBackendConfig, BilibiliConfig, LinkResolverConfig, PLUGIN_ID, RetryConfig};
@@ -17,14 +17,6 @@ use crate::{BilibiliBackendConfig, BilibiliConfig, LinkResolverConfig, PLUGIN_ID
 pub const BILIBILI_COOKIE_FIELD: &str = "cookie";
 /// Host secret store key the Web cookie credential resolves through.
 pub const BILIBILI_COOKIE_KEY: &str = "BILIBILI_COOKIE";
-/// Provider document field holding the Open Platform app secret value.
-pub const BILIBILI_APP_SECRET_FIELD: &str = "app_secret";
-/// Host secret store key the Open Platform app secret resolves through.
-pub const BILIBILI_APP_SECRET_KEY: &str = "BILIBILI_OPEN_APP_SECRET";
-/// Provider document field holding the Open Platform OAuth credential value.
-pub const BILIBILI_OAUTH_CREDENTIAL_FIELD: &str = "oauth_credential";
-/// Host secret store key the Open Platform OAuth credential resolves through.
-pub const BILIBILI_OAUTH_CREDENTIAL_KEY: &str = "BILIBILI_OPEN_OAUTH";
 
 /// Deployment defaults for the product-owned document. Poll intervals stay
 /// conservative because the polling sources are shared public endpoints.
@@ -81,32 +73,12 @@ pub fn bilibili_config_descriptor() -> ConfigDescriptor {
             restart_policy: RestartPolicy::PluginReload,
             children: vec![
                 bool_node("enabled", "启用", Some("关闭后不会加载 B 站插件。")),
-                backend_node(),
-                when_backend(
-                    "web_cookie",
-                    secret_node(BILIBILI_COOKIE_FIELD, "登录 Cookie"),
-                ),
-                when_backend("open_platform", string_node("client_id", "Client ID")),
-                when_backend(
-                    "open_platform",
-                    secret_node(BILIBILI_APP_SECRET_FIELD, "App Secret"),
-                ),
-                when_backend(
-                    "open_platform",
-                    secret_node(BILIBILI_OAUTH_CREDENTIAL_FIELD, "OAuth 凭据"),
-                ),
-                when_backend(
-                    "open_platform",
-                    unsigned_node("authorized_uid", "授权用户 UID"),
-                ),
-                when_backend(
-                    "web_cookie",
-                    bool_node(
-                        "management_enabled",
-                        "Cookie 管理",
-                        Some(
-                            "启用后可通过管理页扫码登录并续期 Cookie，需要 Host security.secret_file。",
-                        ),
+                secret_node(BILIBILI_COOKIE_FIELD, "登录 Cookie"),
+                bool_node(
+                    "management_enabled",
+                    "Cookie 管理",
+                    Some(
+                        "启用后可通过管理页扫码登录并续期 Cookie，需要 Host security.secret_file。",
                     ),
                 ),
                 when_management(array_node(
@@ -129,18 +101,9 @@ pub fn bilibili_config_descriptor() -> ConfigDescriptor {
 /// Projects a full [`BilibiliConfig`] into the product-owned document shape.
 #[must_use]
 pub fn bilibili_config_value(enabled: bool, config: &BilibiliConfig) -> ConfigValue {
-    let (backend, client_id, authorized_uid) = match &config.backend {
-        BilibiliBackendConfig::WebCookie { .. } => ("web_cookie", String::new(), 0),
-        BilibiliBackendConfig::OpenPlatform {
-            client_id,
-            authorized_uid,
-            ..
-        } => ("open_platform", client_id.clone(), *authorized_uid),
-    };
     ConfigValue::Object(
         [
             ("enabled".into(), ConfigValue::Bool(enabled)),
-            ("backend".into(), ConfigValue::String(backend.into())),
             (
                 "media_provider_id".into(),
                 ConfigValue::String(config.media_provider_id.clone()),
@@ -148,19 +111,6 @@ pub fn bilibili_config_value(enabled: bool, config: &BilibiliConfig) -> ConfigVa
             (
                 BILIBILI_COOKIE_FIELD.into(),
                 ConfigValue::Secret(SecretState::Keep),
-            ),
-            ("client_id".into(), ConfigValue::String(client_id)),
-            (
-                BILIBILI_APP_SECRET_FIELD.into(),
-                ConfigValue::Secret(SecretState::Keep),
-            ),
-            (
-                BILIBILI_OAUTH_CREDENTIAL_FIELD.into(),
-                ConfigValue::Secret(SecretState::Keep),
-            ),
-            (
-                "authorized_uid".into(),
-                ConfigValue::Integer(authorized_uid as i64),
             ),
             (
                 "management_enabled".into(),
@@ -192,43 +142,6 @@ pub fn bilibili_config_value(enabled: bool, config: &BilibiliConfig) -> ConfigVa
         .into_iter()
         .collect(),
     )
-}
-
-fn backend_node() -> ConfigNode {
-    let mut node = field_node(
-        "backend",
-        "接入方式",
-        ConfigValueType::Enum {
-            options: vec![
-                EnumOption {
-                    value: "web_cookie".into(),
-                    label: LocalizedText::new("Web Cookie"),
-                },
-                EnumOption {
-                    value: "open_platform".into(),
-                    label: LocalizedText::new("开放平台"),
-                },
-            ],
-            multi: false,
-        },
-        ConfigConstraints::default(),
-    );
-    node.description = Some(LocalizedText::new(
-        "开放平台不支持 Cookie 管理、Web 链接解析和 Chromium 风控。",
-    ));
-    node
-}
-
-fn when_backend(kind: &str, mut node: ConfigNode) -> ConfigNode {
-    node.enabled_if = Some(ConfigExpr::Eq {
-        left: Box::new(ConfigExpr::Field {
-            key: ConfigKey::new("backend"),
-        }),
-        right: Box::new(ConfigExpr::Literal {
-            value: ConfigValue::String(kind.into()),
-        }),
-    });
-    node
 }
 
 fn when_management(mut node: ConfigNode) -> ConfigNode {
@@ -275,18 +188,6 @@ fn string_node_with(key: &str, title: &str, description: &str) -> ConfigNode {
     let mut node = string_node(key, title);
     node.description = Some(LocalizedText::new(description));
     node
-}
-
-fn unsigned_node(key: &str, title: &str) -> ConfigNode {
-    field_node(
-        key,
-        title,
-        ConfigValueType::Integer,
-        ConfigConstraints {
-            min: Some(0.0),
-            ..ConfigConstraints::default()
-        },
-    )
 }
 
 fn array_node(key: &str, title: &str, description: &str) -> ConfigNode {
@@ -355,12 +256,7 @@ mod tests {
             keys,
             [
                 "enabled",
-                "backend",
                 BILIBILI_COOKIE_FIELD,
-                "client_id",
-                BILIBILI_APP_SECRET_FIELD,
-                BILIBILI_OAUTH_CREDENTIAL_FIELD,
-                "authorized_uid",
                 "management_enabled",
                 "management_admin_user_ids",
                 "management_self_binding_outbound_binding",
@@ -371,14 +267,13 @@ mod tests {
     }
 
     #[test]
-    fn config_value_projects_backend_and_management_switches() {
+    fn config_value_projects_management_switches() {
         let mut config = BilibiliConfig::default();
         config.media_provider_id = "memory".into();
         config.management.enabled = true;
         config.management.admin_user_ids = vec!["admin".into()];
         let value = bilibili_config_value(true, &config).to_json();
         assert_eq!(value["enabled"], true);
-        assert_eq!(value["backend"], "web_cookie");
         assert_eq!(value["media_provider_id"], "memory");
         assert_eq!(value["management_enabled"], true);
         assert_eq!(value["management_admin_user_ids"][0], "admin");

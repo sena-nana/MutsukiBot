@@ -59,10 +59,9 @@ use crate::{
 use mutsuki_plugin_bot_bilibili::{
     BilibiliBackendConfig, BilibiliConfig, BilibiliConfigStore, BilibiliCredentialStore,
     BilibiliManagementService, BilibiliRunner, BilibiliSecretPresence,
-    PLUGIN_ID as BILIBILI_PLUGIN_ID, ReqwestBilibiliOpenPlatformTransport,
-    ReqwestBilibiliTransport, RuntimeBilibiliQrRenderer, SharedBilibiliConfig,
-    SharedBilibiliCredential, SqliteBilibiliRepository, bilibili_config_descriptor,
-    bilibili_config_value,
+    PLUGIN_ID as BILIBILI_PLUGIN_ID, ReqwestBilibiliTransport, RuntimeBilibiliQrRenderer,
+    SharedBilibiliConfig, SharedBilibiliCredential, SqliteBilibiliRepository,
+    bilibili_config_descriptor, bilibili_config_value,
 };
 use mutsuki_plugin_bot_bilibili_workshop::{
     PLUGIN_ID as WORKSHOP_PLUGIN_ID, ReqwestWorkshopTransport, WorkshopRunner,
@@ -775,21 +774,8 @@ impl ConfiguredPluginFactory for BilibiliConfiguredPlugin {
         }
         config.validate()?;
         let host_secret_store = builder.host_secret_store();
-        if matches!(config.backend, BilibiliBackendConfig::OpenPlatform { .. })
-            && !host_secret_store.rotation_available()
-        {
-            return Err(
-                "Bilibili Open Platform requires a Host security.secret_file for OAuth refresh"
-                    .into(),
-            );
-        }
-        if config.management.enabled {
-            if !matches!(config.backend, BilibiliBackendConfig::WebCookie { .. }) {
-                return Err("Bilibili management requires backend.type = web_cookie".into());
-            }
-            if !host_secret_store.rotation_available() {
-                return Err("Bilibili management requires a Host security.secret_file".into());
-            }
+        if config.management.enabled && !host_secret_store.rotation_available() {
+            return Err("Bilibili management requires a Host security.secret_file".into());
         }
         let config_service = if config.management.enabled {
             Some(
@@ -805,14 +791,10 @@ impl ConfiguredPluginFactory for BilibiliConfiguredPlugin {
                 .map_err(|error| error.to_string())?,
         );
         let web_credential = SharedBilibiliCredential::default();
-        let app_secret = SharedBilibiliCredential::default();
-        let oauth_credential = SharedBilibiliCredential::default();
         let shared_config = SharedBilibiliConfig::new(config);
         let runner_config = shared_config.clone();
         let runner_repository = repository.clone();
         let runner_web_credential = web_credential.clone();
-        let runner_app_secret = app_secret.clone();
-        let runner_oauth_credential = oauth_credential.clone();
         let source_credentials = match &shared_config.snapshot().backend {
             BilibiliBackendConfig::WebCookie { cookie_secret_key } => {
                 BilibiliPollingCredentials::WebCookie {
@@ -821,16 +803,6 @@ impl ConfiguredPluginFactory for BilibiliConfiguredPlugin {
                     required: !shared_config.snapshot().management.enabled,
                 }
             }
-            BilibiliBackendConfig::OpenPlatform {
-                app_secret_key,
-                oauth_credential_key,
-                ..
-            } => BilibiliPollingCredentials::OpenPlatform {
-                app_secret_key: app_secret_key.clone(),
-                app_secret: app_secret.clone(),
-                oauth_credential_key: oauth_credential_key.clone(),
-                oauth_credential: oauth_credential.clone(),
-            },
         };
         let source = BilibiliPollingEventSource::new(shared_config.clone(), source_credentials);
         let manifest_config = runner_config.snapshot();
@@ -929,30 +901,12 @@ impl ConfiguredPluginFactory for BilibiliConfiguredPlugin {
                                 Duration::from_secs(15),
                             ))
                         }
-                        BilibiliBackendConfig::OpenPlatform {
-                            client_id,
-                            oauth_credential_key,
-                            authorized_uid,
-                            ..
-                        } => Box::new(ReqwestBilibiliOpenPlatformTransport::new(
-                            client_id,
-                            *authorized_uid,
-                            runner_app_secret.clone(),
-                            runner_oauth_credential.clone(),
-                            oauth_credential_key,
-                            Arc::new(HostBilibiliCredentialStore {
-                                host: host_secret_store.clone(),
-                                shared: runner_oauth_credential.clone(),
-                            }),
-                            Duration::from_secs(15),
-                        )),
                     };
-                let mut runner = BilibiliRunner::new_for_backend(
+                let mut runner = BilibiliRunner::new(
                     transport,
                     runner_repository.clone(),
                     resources.clone(),
                     snapshot.media_provider_id.clone(),
-                    snapshot.backend.kind(),
                 );
                 if snapshot.management.enabled {
                     let management = management_service.clone().ok_or_else(|| {
@@ -1460,41 +1414,6 @@ mod tests {
             Err(error) => error,
         };
         assert!(error.contains("security.secret_file"));
-    }
-
-    #[test]
-    fn configured_bilibili_open_platform_requires_rotatable_oauth_store() {
-        let config = json!({
-            "backend": {
-                "type": "open_platform",
-                "client_id": "client",
-                "app_secret_key": "BILIBILI_OPEN_APP_SECRET",
-                "oauth_credential_key": "BILIBILI_OPEN_OAUTH",
-                "authorized_uid": 42
-            },
-            "live_interval_ms": 1000,
-            "dynamic_interval_ms": 1000,
-            "video_interval_ms": 1000,
-            "retry": {"max_attempts": 3, "initial_backoff_ms": 10, "max_backoff_ms": 100},
-            "subscriptions": [],
-            "link_resolver": {"enabled": false, "cooldown_ms": 1000, "account_to_binding": {}},
-            "media_provider_id": "memory",
-            "management": {
-                "enabled": false,
-                "allow_self_binding": false,
-                "admin_user_ids": [],
-                "self_binding_notifications": ["live", "video"],
-                "self_binding_outbound_binding": ""
-            }
-        });
-        let error = BilibiliConfiguredPlugin::new(None, DEFAULT_MEDIA_PROVIDER_ID.to_string())
-            .prepare(
-                &config,
-                ServiceRuntimeBuilder::new(ServiceConfig::default()),
-            )
-            .err()
-            .expect("Open Platform unexpectedly accepted a non-rotatable secret store");
-        assert!(error.contains("OAuth refresh"));
     }
 
     #[test]

@@ -28,10 +28,8 @@ use mutsuki_plugin_bot_agent::{
     BOT_AGENT_BRIDGE_PLUGIN_ID, BotAgentConfig, bot_agent_config_schema,
 };
 use mutsuki_plugin_bot_bilibili::{
-    BILIBILI_APP_SECRET_FIELD, BILIBILI_APP_SECRET_KEY, BILIBILI_COOKIE_FIELD, BILIBILI_COOKIE_KEY,
-    BILIBILI_OAUTH_CREDENTIAL_FIELD, BILIBILI_OAUTH_CREDENTIAL_KEY, BilibiliBackendConfig,
-    BilibiliConfig, PLUGIN_ID as BILIBILI_PLUGIN_ID, bilibili_config_descriptor,
-    bilibili_config_value,
+    BILIBILI_COOKIE_FIELD, BILIBILI_COOKIE_KEY, BilibiliBackendConfig, BilibiliConfig,
+    PLUGIN_ID as BILIBILI_PLUGIN_ID, bilibili_config_descriptor, bilibili_config_value,
 };
 use mutsuki_plugin_bot_bilibili_workshop::PLUGIN_ID as WORKSHOP_PLUGIN_ID;
 use mutsuki_plugin_bot_event_router::BOT_FLOW_ROUTER_PLUGIN_ID;
@@ -317,14 +315,7 @@ pub(crate) async fn register_configured_product_providers(
         bilibili_config_descriptor(),
         bilibili_config_value(false, &BilibiliConfig::default()),
         &secrets,
-        &[
-            (BILIBILI_COOKIE_FIELD, BILIBILI_COOKIE_KEY),
-            (BILIBILI_APP_SECRET_FIELD, BILIBILI_APP_SECRET_KEY),
-            (
-                BILIBILI_OAUTH_CREDENTIAL_FIELD,
-                BILIBILI_OAUTH_CREDENTIAL_KEY,
-            ),
-        ],
+        &[(BILIBILI_COOKIE_FIELD, BILIBILI_COOKIE_KEY)],
     );
     service
         .registry()
@@ -586,30 +577,11 @@ pub(crate) fn configured_plugin_selection_from_value(
             // The product assembly owns the media resource provider binding;
             // owner documents no longer carry a provider id.
             config.media_provider_id = MEDIA_RESOURCE_PROVIDER_ID.into();
-            if optional_string_field(object, "backend") == "open_platform" {
-                config.backend = BilibiliBackendConfig::OpenPlatform {
-                    client_id: optional_string_field(object, "client_id"),
-                    app_secret_key: BILIBILI_APP_SECRET_KEY.into(),
-                    oauth_credential_key: BILIBILI_OAUTH_CREDENTIAL_KEY.into(),
-                    authorized_uid: object
-                        .get("authorized_uid")
-                        .and_then(serde_json::Value::as_u64)
-                        .unwrap_or_default(),
-                };
-                // The open platform backend cannot serve cookie management,
-                // web link resolution or Chromium risk control; drop the stale
-                // hidden values so validation matches the visible contract.
-                config.management.enabled = false;
-                config.risk_control = None;
-                config.link_resolver.enabled = false;
-            } else {
-                config.backend = BilibiliBackendConfig::WebCookie {
-                    cookie_secret_key: BILIBILI_COOKIE_KEY.into(),
-                };
-            }
-            config.management.enabled = optional_bool_field(object, "management_enabled")
-                .unwrap_or_default()
-                && matches!(config.backend, BilibiliBackendConfig::WebCookie { .. });
+            config.backend = BilibiliBackendConfig::WebCookie {
+                cookie_secret_key: BILIBILI_COOKIE_KEY.into(),
+            };
+            config.management.enabled =
+                optional_bool_field(object, "management_enabled").unwrap_or_default();
             if let Some(admin_user_ids) = object
                 .get("management_admin_user_ids")
                 .and_then(serde_json::Value::as_array)
@@ -867,43 +839,6 @@ mod tests {
             restored.backend.cookie_secret_key(),
             Some(BILIBILI_COOKIE_KEY)
         );
-    }
-
-    #[test]
-    fn open_platform_switch_forces_cookie_only_surfaces_off() {
-        let mut config = BilibiliConfig::default();
-        config.management.enabled = true;
-        config.link_resolver.enabled = true;
-        let value = bilibili_config_value(true, &config).to_json();
-        let value = serde_json::json!({
-            "enabled": true,
-            "backend": "open_platform",
-            "client_id": "client",
-            "app_secret": "configured",
-            "oauth_credential": "configured",
-            "authorized_uid": 42,
-            "management_enabled": true,
-            "runtime_config": value["runtime_config"],
-        });
-        let selected = select_plugin(BILIBILI_PLUGIN_ID, ConfigValue::from_json(&value)).unwrap();
-        let restored: BilibiliConfig = serde_json::from_value(selected.config).unwrap();
-        match restored.backend {
-            BilibiliBackendConfig::OpenPlatform {
-                client_id,
-                app_secret_key,
-                oauth_credential_key,
-                authorized_uid,
-            } => {
-                assert_eq!(client_id, "client");
-                assert_eq!(app_secret_key, BILIBILI_APP_SECRET_KEY);
-                assert_eq!(oauth_credential_key, BILIBILI_OAUTH_CREDENTIAL_KEY);
-                assert_eq!(authorized_uid, 42);
-            }
-            other => panic!("expected open platform backend, got {other:?}"),
-        }
-        assert!(!restored.management.enabled);
-        assert!(!restored.link_resolver.enabled);
-        assert!(restored.risk_control.is_none());
     }
 
     #[test]

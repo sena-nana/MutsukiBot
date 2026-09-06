@@ -44,7 +44,7 @@ file stores the value. Environment-backed secrets are intentionally read-only an
 rotated by QR login.
 
 Full Web Console and chat management require `backend.type = web_cookie` and
-`management.enabled = true`. `open_platform` is poll/push only and rejects management.
+`management.enabled = true`.
 
 ## Commands
 

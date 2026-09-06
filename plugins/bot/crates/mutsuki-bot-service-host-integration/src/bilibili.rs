@@ -38,30 +38,16 @@ pub enum BilibiliPollingCredentials {
         credential: SharedBilibiliCredential,
         required: bool,
     },
-    OpenPlatform {
-        app_secret_key: String,
-        app_secret: SharedBilibiliCredential,
-        oauth_credential_key: String,
-        oauth_credential: SharedBilibiliCredential,
-    },
 }
 
 impl BilibiliPollingCredentials {
-    fn descriptor(&self, mut descriptor: HostEventSourceDescriptor) -> HostEventSourceDescriptor {
+    fn descriptor(&self, descriptor: HostEventSourceDescriptor) -> HostEventSourceDescriptor {
         match self {
             Self::WebCookie {
                 secret_key,
                 required,
                 ..
             } if *required => descriptor.require_secret(secret_key.clone()),
-            Self::OpenPlatform {
-                app_secret_key,
-                oauth_credential_key,
-                ..
-            } => {
-                descriptor = descriptor.require_secret(app_secret_key.clone());
-                descriptor.require_secret(oauth_credential_key.clone())
-            }
             _ => descriptor,
         }
     }
@@ -76,35 +62,12 @@ impl BilibiliPollingCredentials {
                 Some(value) => credential.set(value),
                 None => credential.clear(),
             },
-            Self::OpenPlatform {
-                app_secret_key,
-                app_secret,
-                oauth_credential_key,
-                oauth_credential,
-            } => {
-                match ctx.config.secret(app_secret_key) {
-                    Some(value) => app_secret.set(value),
-                    None => app_secret.clear(),
-                }
-                match ctx.config.secret(oauth_credential_key) {
-                    Some(value) => oauth_credential.set(value),
-                    None => oauth_credential.clear(),
-                }
-            }
         }
     }
 
     fn clear(&self) {
         match self {
             Self::WebCookie { credential, .. } => credential.clear(),
-            Self::OpenPlatform {
-                app_secret,
-                oauth_credential,
-                ..
-            } => {
-                app_secret.clear();
-                oauth_credential.clear();
-            }
         }
     }
 }

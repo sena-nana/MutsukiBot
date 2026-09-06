@@ -16,11 +16,10 @@ use mutsuki_bot_management::{
 use mutsuki_bot_protocol::{BOT_EVENT_INGEST_PROTOCOL_ID, BotTarget};
 
 use crate::{
-    BILIBILI_EVENT_TYPE, BilibiliBackendConfig, BilibiliBackendKind, BilibiliConfig,
-    BilibiliConfigStore, BilibiliCredentialStore, BilibiliError, BilibiliPollKind,
-    BilibiliQrStatus, BilibiliSubscription, BilibiliTransport, SharedBilibiliConfig,
-    SharedBilibiliCredential, SqliteBilibiliRepository, binding_code, select_subscription,
-    self_subscription_id_for,
+    BILIBILI_EVENT_TYPE, BilibiliBackendConfig, BilibiliConfig, BilibiliConfigStore,
+    BilibiliCredentialStore, BilibiliError, BilibiliPollKind, BilibiliQrStatus,
+    BilibiliSubscription, BilibiliTransport, SharedBilibiliConfig, SharedBilibiliCredential,
+    SqliteBilibiliRepository, binding_code, select_subscription, self_subscription_id_for,
 };
 
 #[async_trait]
@@ -96,25 +95,17 @@ impl BilibiliManagementService {
 
     fn status_impl(&self) -> BilibiliManagementStatus {
         let snapshot = self.config.snapshot();
-        let backend = match snapshot.backend.kind() {
-            BilibiliBackendKind::WebCookie => "web_cookie",
-            BilibiliBackendKind::OpenPlatform => "open_platform",
-        }
-        .into();
+        let backend = "web_cookie".into();
         let (cookie_secret_key, cookie_secret_state) = match &snapshot.backend {
             BilibiliBackendConfig::WebCookie { cookie_secret_key } => (
                 Some(cookie_secret_key.clone()),
                 Some(self.secret_presence.inspect(cookie_secret_key)),
             ),
-            BilibiliBackendConfig::OpenPlatform { .. } => (None, None),
         };
         let management_enabled = snapshot.management.enabled;
-        let available =
-            management_enabled && matches!(snapshot.backend.kind(), BilibiliBackendKind::WebCookie);
+        let available = management_enabled;
         let reason = if !management_enabled {
             Some("management is disabled".into())
-        } else if !matches!(snapshot.backend.kind(), BilibiliBackendKind::WebCookie) {
-            Some("full console management requires web_cookie backend".into())
         } else {
             None
         };
@@ -478,11 +469,6 @@ impl BilibiliManagementService {
         if !config.management.enabled {
             return Err(BilibiliError::ManagementUnavailable(
                 "management is disabled".into(),
-            ));
-        }
-        if !matches!(config.backend.kind(), BilibiliBackendKind::WebCookie) {
-            return Err(BilibiliError::ManagementUnavailable(
-                "Cookie backend is not selected".into(),
             ));
         }
         Ok(())

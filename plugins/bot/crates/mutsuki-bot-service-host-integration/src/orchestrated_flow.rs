@@ -617,11 +617,7 @@ mod tests {
         let catalog = BotNodeCatalog::from_manifests(&[
             qqbot_adapter_manifest(1, false),
             flow_router_manifest(),
-            mutsuki_plugin_bot_bilibili::manifest_for_backend(
-                mutsuki_plugin_bot_bilibili::BilibiliBackendKind::OpenPlatform,
-                false,
-                false,
-            ),
+            mutsuki_plugin_bot_bilibili::manifest_for_backend(false, false),
         ])
         .expect("push catalogs merge");
         let flow = bilibili_push_flow();
