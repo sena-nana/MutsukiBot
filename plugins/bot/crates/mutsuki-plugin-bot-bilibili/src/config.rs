@@ -73,12 +73,13 @@ pub fn bilibili_config_descriptor() -> ConfigDescriptor {
             restart_policy: RestartPolicy::PluginReload,
             children: vec![
                 bool_node("enabled", "启用", Some("关闭后不会加载 B 站插件。")),
-                secret_node(BILIBILI_COOKIE_FIELD, "登录 Cookie"),
+                hidden_secret_node(BILIBILI_COOKIE_FIELD, "登录 Cookie"),
                 bool_node(
                     "management_enabled",
-                    "Cookie 管理",
+                    "订阅管理",
                     Some(
-                        "启用后可通过管理页扫码登录并续期 Cookie，需要 Host security.secret_file。",
+                        "启用后可在聊天与 Web 控制台使用订阅管理、自助绑定等管理功能；\
+                         扫码登录与凭据轮换不依赖此开关，需要 Host security.secret_file。",
                     ),
                 ),
                 when_management(array_node(
@@ -217,6 +218,16 @@ fn secret_node(key: &str, title: &str) -> ConfigNode {
     node
 }
 
+/// Stays in the schema so snapshot/apply keeps the stored secret state, but
+/// hidden from the webui: the cookie is only rotated through QR login.
+fn hidden_secret_node(key: &str, title: &str) -> ConfigNode {
+    let mut node = secret_node(key, title);
+    node.visibility = Some(ConfigExpr::Literal {
+        value: ConfigValue::Bool(false),
+    });
+    node
+}
+
 fn field_node(
     key: &str,
     title: &str,
@@ -262,6 +273,18 @@ mod tests {
                 "management_self_binding_outbound_binding",
                 "runtime_config",
             ]
+        );
+        let cookie = descriptor
+            .root
+            .children
+            .iter()
+            .find(|node| node.key.as_str() == BILIBILI_COOKIE_FIELD)
+            .expect("cookie field stays in the schema");
+        assert_eq!(
+            cookie.visibility,
+            Some(ConfigExpr::Literal {
+                value: ConfigValue::Bool(false),
+            })
         );
         assert_eq!(descriptor.provider_id.as_str(), PLUGIN_ID);
     }

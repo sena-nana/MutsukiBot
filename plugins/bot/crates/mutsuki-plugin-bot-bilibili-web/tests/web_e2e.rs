@@ -36,7 +36,6 @@ fn unused() -> BilibiliManagementError {
 impl BilibiliManagementApi for Api {
     fn status(&self) -> BilibiliManagementStatus {
         BilibiliManagementStatus {
-            available: true,
             backend: "web_cookie".into(),
             management_enabled: true,
             allow_self_binding: false,

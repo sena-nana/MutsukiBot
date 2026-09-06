@@ -70,7 +70,6 @@ pub enum BilibiliCredentialSecretState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct BilibiliManagementStatus {
-    pub available: bool,
     pub backend: String,
     pub management_enabled: bool,
     pub allow_self_binding: bool,

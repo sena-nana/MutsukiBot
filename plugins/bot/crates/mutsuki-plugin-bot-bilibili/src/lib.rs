@@ -975,7 +975,7 @@ impl BilibiliRunner {
         client: RuntimeClientRef,
         risk_control: Option<BilibiliRiskControlConfig>,
     ) -> Box<dyn Runner> {
-        let descriptor = runner_descriptor(self.managed_config.is_some(), risk_control.is_some());
+        let descriptor = runner_descriptor(risk_control.is_some());
         let state = Arc::new(Mutex::new(self));
         let factory = Box::new(move |ctx: AsyncRunnerContext, task: Task| {
             let state = state.clone();
@@ -1050,9 +1050,6 @@ impl BilibiliRunner {
             .as_ref()
             .expect("management config is installed with the API")
             .snapshot();
-        if !config.management.enabled {
-            return Ok(RunnerResult::completed(task.task_id.clone()));
-        }
         let actor_id = command
             .source
             .actor
@@ -1060,6 +1057,10 @@ impl BilibiliRunner {
             .map(|actor| actor.user_id.as_str())
             .ok_or_else(|| bili_error(task, BilibiliError::Forbidden))?;
         let action = command.args.first().map(String::as_str).unwrap_or("help");
+        // login-status polls the QR session started by /bili login.
+        if action != "login-status" && !config.management.enabled {
+            return Ok(RunnerResult::completed(task.task_id.clone()));
+        }
         let is_admin = config
             .management
             .admin_user_ids
@@ -1622,7 +1623,8 @@ async fn run_management_task(
             .as_ref()
             .expect("management config is installed with the API")
             .snapshot();
-        if !config.management.enabled {
+        // QR login is the only credential path.
+        if action != "login" && !config.management.enabled {
             return Ok(RunnerResult::completed(task.task_id));
         }
         let actor_id = command
@@ -2047,13 +2049,14 @@ pub fn manifest_for_backend(
 ) -> mutsuki_runtime_contracts::PluginManifest {
     let mut builder = PluginBuilder::new(PLUGIN_ID)
         .runner(Box::new(ManifestRunner {
-            descriptor: runner_descriptor(management_enabled, risk_control_enabled),
+            descriptor: runner_descriptor(risk_control_enabled),
         }))
         .protocol_handler(protocol(POLL_LIVE), RUNNER_ID, "orchestration")
         .protocol_handler(protocol(POLL_VIDEO), RUNNER_ID, "orchestration")
         .protocol_handler(protocol(NOTIFY_CARD), RUNNER_ID, "orchestration")
         .protocol_handler(protocol(POLL_DYNAMIC), RUNNER_ID, "orchestration")
-        .protocol_handler(protocol(LINK_RESOLVE), RUNNER_ID, "orchestration");
+        .protocol_handler(protocol(LINK_RESOLVE), RUNNER_ID, "orchestration")
+        .protocol_handler(protocol(MANAGEMENT_COMMAND), RUNNER_ID, "orchestration");
     let mut nodes = Vec::new();
     nodes.push(BotNodeDescriptor {
         node_type_id: BILIBILI_NOTIFICATION_NODE_TYPE.into(),
@@ -2142,8 +2145,6 @@ pub fn manifest_for_backend(
         }),
     });
     if management_enabled {
-        builder =
-            builder.protocol_handler(protocol(MANAGEMENT_COMMAND), RUNNER_ID, "orchestration");
         nodes.push(BotNodeDescriptor {
             node_type_id: "mutsuki.bot.bilibili.management".into(),
             version: 1,
@@ -2195,7 +2196,7 @@ pub fn manifest_for_backend(
     manifest
 }
 
-fn runner_descriptor(management: bool, risk_control: bool) -> RunnerDescriptor {
+fn runner_descriptor(risk_control: bool) -> RunnerDescriptor {
     let mut builder = RunnerDescriptorBuilder::new(RUNNER_ID, PLUGIN_ID);
     let protocols: &[&str] = &[
         POLL_LIVE,
@@ -2207,11 +2208,9 @@ fn runner_descriptor(management: bool, risk_control: bool) -> RunnerDescriptor {
     for protocol in protocols {
         builder = builder.accepted_protocol(*protocol);
     }
-    if management {
-        builder = builder
-            .accepted_protocol(MANAGEMENT_COMMAND)
-            .requires_protocol(QR_RENDER);
-    }
+    builder = builder
+        .accepted_protocol(MANAGEMENT_COMMAND)
+        .requires_protocol(QR_RENDER);
     if risk_control {
         builder = builder.requires_protocol(SNAPSHOT);
     }
@@ -2725,6 +2724,7 @@ fn wbi_mixin_key(img_url: &str, sub_url: &str) -> Result<String, BilibiliError> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mutsuki_bot_management::BilibiliQrLoginStatus;
     use mutsuki_bot_protocol::{
         BotAccountRef, BotEvent, BotEventKind, BotFlowDocument, BotFlowEdge, BotFlowEdgeKind,
         BotFlowNode, BotFlowNodePosition, BotFlowSourceSelector, BotNodeWiring, BotPlatform,
@@ -3143,10 +3143,17 @@ mod tests {
             base.requires
                 .contains(&SurfaceRequirement::task_protocol(CARD_RENDER))
         );
+        // The runner accepts the management command and requires the QR
+        // renderer regardless of the management switch.
         assert!(
-            !base
-                .requires
+            base.requires
                 .contains(&SurfaceRequirement::task_protocol(QR_RENDER))
+        );
+        assert!(
+            base.provides.runners[0]
+                .accepted_protocol_ids
+                .iter()
+                .any(|protocol_id| protocol_id == MANAGEMENT_COMMAND)
         );
         let base_nodes = BotNodeCatalogFragment::from_plugin_extension(
             base.provides.extensions.first().unwrap(),
@@ -3786,7 +3793,6 @@ mod tests {
         let mut changes = management
             .subscribe_changes()
             .expect("Bilibili change source");
-        assert!(status.available);
         assert!(status.credential_loaded);
         assert!(
             !serde_json::to_string(&status)
@@ -3923,6 +3929,48 @@ mod tests {
         assert_eq!(result.url, "https://passport.bilibili.com/qr");
         assert_eq!(result.qr_png, vec![1, 2, 3, 4]);
         assert_eq!(result.qr_png_base64, "AQIDBA==");
+    }
+
+    #[tokio::test]
+    async fn management_login_rotates_credentials_without_the_management_switch() {
+        let mut config = managed_config();
+        config.management.enabled = false;
+        let credential = SharedBilibiliCredential::default();
+        let credential_store = Arc::new(RecordingCredentialStore::default());
+        let config_store = Arc::new(RecordingConfigStore::default());
+        let management = BilibiliManagementService::new(
+            SharedBilibiliConfig::new(config),
+            credential.clone(),
+            Box::new(FakeTransport(Arc::new(Mutex::new(
+                FakeTransportState::default(),
+            )))),
+            Arc::new(SqliteBilibiliRepository::open(":memory:").unwrap()),
+            credential_store.clone(),
+            config_store,
+            Arc::new(AlwaysPresentSecrets),
+        );
+        management.bind_qr_renderer(Arc::new(FakeQrRenderer));
+        management.login_start("web-console").await.unwrap();
+        let polled = management.login_poll("web-console").unwrap();
+        assert_eq!(polled.status, BilibiliQrLoginStatus::Confirmed);
+        assert!(credential.is_loaded());
+        assert_eq!(
+            credential_store.0.lock().unwrap().last().unwrap(),
+            &("BILIBILI_COOKIE".into(), "SESSDATA=ROTATED".into())
+        );
+        assert!(
+            management
+                .subscribe(
+                    "sub-1".into(),
+                    7,
+                    vec![BilibiliNotificationKind::Live],
+                    BotTarget::Group {
+                        group_id: "g1".into(),
+                    },
+                    "qq-main".into(),
+                )
+                .is_err()
+        );
     }
 
     fn managed_config() -> BilibiliConfig {

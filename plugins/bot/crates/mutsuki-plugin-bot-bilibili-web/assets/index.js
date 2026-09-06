@@ -154,7 +154,7 @@ export function mountBilibiliPanel(host, rpc, events) {
     statusBox.append(
       kvList([
         ["状态", status.credential_loaded ? "已登录" : "未登录"],
-        ["管理", status.available ? "可用" : "不可用"],
+        ["订阅管理", status.management_enabled ? "可用" : "未启用"],
         ["订阅", String(status.subscription_count ?? 0)],
       ]),
     );
@@ -167,7 +167,6 @@ export function mountBilibiliPanel(host, rpc, events) {
     const actions = document.createElement("div");
     actions.className = "actions";
     const clearBtn = button("清除凭据", "");
-    clearBtn.disabled = !status.available;
     clearBtn.onclick = async () => {
       if (!window.confirm("确认清除 B 站登录凭据？")) return;
       try {
@@ -181,9 +180,8 @@ export function mountBilibiliPanel(host, rpc, events) {
     actions.appendChild(clearBtn);
     statusBox.appendChild(actions);
 
-    qrBox.hidden = !status.available;
-    addBox.hidden = !status.available;
-    bindBox.hidden = !(status.available && status.allow_self_binding);
+    addBox.hidden = !status.management_enabled;
+    bindBox.hidden = !(status.management_enabled && status.allow_self_binding);
   }
 
   async function refreshList() {
@@ -223,7 +221,7 @@ export function mountBilibiliPanel(host, rpc, events) {
       const actions = document.createElement("div");
       actions.className = "actions";
       const pauseBtn = button(item.paused ? "恢复" : "暂停");
-      pauseBtn.disabled = !status.available;
+      pauseBtn.disabled = !status.management_enabled;
       pauseBtn.onclick = async () => {
         try {
           await rpc.write("bilibili", "subscriptions.set_paused", {
@@ -274,7 +272,7 @@ export function mountBilibiliPanel(host, rpc, events) {
         }
       };
       const delBtn = button("删除");
-      delBtn.disabled = !status.available;
+      delBtn.disabled = !status.management_enabled;
       delBtn.onclick = async () => {
         if (!window.confirm(`确认删除订阅 ${formatTarget(item.target)}？`)) return;
         try {

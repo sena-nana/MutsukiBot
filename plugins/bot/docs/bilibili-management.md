@@ -27,6 +27,12 @@ The management contract contains only product fields:
 - every subscription has a stable `subscription_id`, `uid`, notification kinds, target, outbound
   binding, `paused`, and optional `owner_user_id`.
 
+QR login is the only credential path and is available regardless of `management.enabled`: chat
+`/bili login` / `/bili login-status` still require an administrator, and the Web Console QR panel
+is always shown, while subscription management, self-binding and other management commands keep
+requiring `management.enabled`. The Web Console never offers a manual cookie field; the owner
+config descriptor hides `cookie` and the value is only rotated through QR login.
+
 Push delivery is a Flow concern: the polling runner submits a `mutsuki.bot.event.bilibili`
 trigger event per fresh item and never sends a message itself. The active graph must wire
 `mutsuki.bot.bilibili.notification` → `mutsuki.bot.bilibili.card` → a platform send node
@@ -43,8 +49,8 @@ Host `security.secret_file`. The product config stores only
 file stores the value. Environment-backed secrets are intentionally read-only and cannot be
 rotated by QR login.
 
-Full Web Console and chat management require `backend.type = web_cookie` and
-`management.enabled = true`.
+Full subscription management on Web Console and in chat requires `backend.type = web_cookie` and
+`management.enabled = true`; QR login only requires `backend.type = web_cookie`.
 
 ## Commands
 

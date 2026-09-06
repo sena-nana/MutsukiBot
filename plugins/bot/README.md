@@ -41,9 +41,11 @@ mixin key 和注入式签名函数。
 `mutsuki.browser.snapshot`，不拥有 Chromium 生命周期。
 
 账号与订阅管理以 Bilibili Processor 节点进入同一个 batch-first runner；命令路径由图中的
-Command Match 节点配置。启用 management 后提供：Host 管理员扫码登录与凭据轮换、签名验证码
-自助绑定、订阅列表/暂停/恢复/删除，以及不推进 cursor 的最新动态预览。二维码在 runner
-内生成 PNG `ResourceRef`，Cookie 不进入消息、Task payload、manifest、日志或 trace。
+Command Match 节点配置。扫码登录与凭据轮换始终可用（聊天内仍需管理员），不依赖 management
+开关；启用 management 后另提供：签名验证码自助绑定、订阅列表/暂停/恢复/删除，以及不推进
+cursor 的最新动态预览。二维码在 runner 内生成 PNG `ResourceRef`，Cookie 不进入消息、Task
+payload、manifest、日志或 trace；Web 控制台不提供手动 Cookie 输入，配置描述符隐藏 `cookie`
+字段，凭据只能经扫码轮换。
 
 管理操作只通过 ServiceHost 的原子 secret/config persistence handle 落盘：扫码成功轮换
 `backend.cookie_secret_key` 指向的本地 secret，订阅变更替换产品配置中 Bilibili owner 的 opaque

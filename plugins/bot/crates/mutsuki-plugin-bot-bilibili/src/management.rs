@@ -103,14 +103,12 @@ impl BilibiliManagementService {
             ),
         };
         let management_enabled = snapshot.management.enabled;
-        let available = management_enabled;
         let reason = if !management_enabled {
-            Some("management is disabled".into())
+            Some("subscription management is disabled".into())
         } else {
             None
         };
         BilibiliManagementStatus {
-            available,
             backend,
             management_enabled,
             allow_self_binding: snapshot.management.allow_self_binding,
@@ -151,7 +149,6 @@ impl BilibiliManagementService {
         &self,
         actor_id: &str,
     ) -> Result<BilibiliLoginSession, BilibiliError> {
-        self.require_web_management()?;
         let qr = self
             .transport
             .lock()
@@ -167,7 +164,6 @@ impl BilibiliManagementService {
     }
 
     fn login_poll_impl(&self, actor_id: &str) -> Result<BilibiliLoginPollResult, BilibiliError> {
-        self.require_web_management()?;
         let config = self.config.snapshot();
         let key = self
             .repository
@@ -214,7 +210,6 @@ impl BilibiliManagementService {
     }
 
     fn credential_clear_impl(&self) -> Result<(), BilibiliError> {
-        self.require_web_management()?;
         let config = self.config.snapshot();
         let cookie_secret_key = config.backend.cookie_secret_key().ok_or_else(|| {
             BilibiliError::ManagementUnavailable("Cookie backend is not selected".into())
